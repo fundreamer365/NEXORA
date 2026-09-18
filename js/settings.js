@@ -1,24 +1,20 @@
-import { supabase } from "./supabase.js";
-import { toast, applyTheme } from "./utils.js";
-import { updateProfile } from "./profile.js";
-
-export function initAppearanceSettings() {
-  const current = localStorage.getItem("nexora-theme") || "dark";
-  document.querySelectorAll("[data-theme-choice]").forEach((btn) => {
-    if (btn.dataset.themeChoice === current) btn.classList.add("active");
-    btn.addEventListener("click", () => {
-      const t = btn.dataset.themeChoice;
-      applyTheme(t);
-      document
-        .querySelectorAll("[data-theme-choice]")
-        .forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      toast(`Theme: ${t}`, "success");
-    });
+  const rowEmail = document.createElement("div");
+  rowEmail.className = "settings-row";
+  rowEmail.innerHTML = `
+    <div class="settings-row-info">
+      <div class="settings-row-label">Email</div>
+      <div class="settings-row-desc">${escapeHtml(state.user.email || "")}</div>
+    </div>
+  `;
+  const changeEmailBtn = document.createElement("button");
+  changeEmailBtn.className = "btn btn-ghost";
+  changeEmailBtn.textContent = "Change";
+  changeEmailBtn.addEventListener("click", () => {
+    const v = prompt("New email:");
+    if (!v) return;
+    updateEmail(v)
+      .then(() => toast("Check your inbox to confirm", "info"))
+      .catch((e) => toast(e.message, "error"));
   });
-}
-
-export async function updateEmail(newEmail) {
-  const { error } = await supabase.auth.updateUser({ email: newEmail });
-  if (error) throw error;
-}
+  rowEmail.appendChild(changeEmailBtn);
+  s.appendChild(rowEmail);
