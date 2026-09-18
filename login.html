@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — NEXORA</title>
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="css/auth.css">
+</head>
+<body>
+  <div class="auth-page">
+    <div id="login-card" class="auth-card">
+      <div class="auth-logo">
+        <div class="auth-logo-text">NEXORA</div>
+      </div>
+      <div class="auth-tagline">Welcome back</div>
+
+      <form id="login-form" class="auth-form" autocomplete="on">
+        <div class="form-group">
+          <label class="form-label" for="login-email">Email</label>
+          <input id="login-email" name="email" type="email" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="login-password">Password</label>
+          <input id="login-password" name="password" type="password" required autocomplete="current-password">
+        </div>
+        <div class="auth-error" id="auth-error"></div>
+        <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
+      </form>
+
+      <div class="auth-switch">
+        No account? <a href="register.html">Register</a>
+      </div>
+    </div>
+
+    <div id="mfa-card" class="auth-card hidden">
+      <div class="auth-logo">
+        <div class="auth-logo-text">NEXORA</div>
+      </div>
+      <div class="auth-tagline">Two-factor authentication</div>
+
+      <form id="mfa-form" class="auth-form">
+        <div class="form-group">
+          <label class="form-label" for="mfa-code">6-digit code from your app</label>
+          <input id="mfa-code" name="code" class="mfa-code-input" maxlength="6" inputmode="numeric" placeholder="000000" required autofocus>
+        </div>
+        <div class="auth-error" id="mfa-error"></div>
+        <button type="submit" class="btn btn-primary auth-submit">Verify</button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="js/auth-page.js"></script>
+</body>
+</html>
