@@ -1,6 +1,6 @@
-// Скопируй этот файл в config.js и заполни реальными значениями.
-// ВАЖНО: anon key можно держать в клиенте — он публичный и защищён RLS.
-// НИКОГДА не вставляй service_role key в клиентский код.
+// NEXORA — Supabase configuration
+// ВНИМАНИЕ: используем ТОЛЬКО publishable (anon) ключ.
+// НИКОГДА не вставляй сюда service_role key.
 
-export const SUPABASE_URL = "YOUR_SUPABASE_URL";
-export const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+export const SUPABASE_URL = "https://jylukilnkgkvmjnierqy.supabase.co";
+export const SUPABASE_ANON_KEY = "sb_publishable_U5rKld1LYukIaFZecnYNaA_cgaJZu4R";
