@@ -675,4 +675,474 @@ function openProfilePanel() {
 
   const changeAv = document.createElement("input");
   changeAv.type = "file";
-  changeAv
+  changeAv.accept = "image/*";
+  changeAv.style.display = "none";
+  changeAv.addEventListener("change", async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      toast("Uploading...", "info");
+      const url = await uploadAvatar(file);
+      state.profile.avatar_url = url;
+      renderSidebarFooter();
+      openProfilePanel();
+      toast("Avatar updated", "success");
+    } catch (err) { toast(err.message, "error"); }
+  });
+  avWrap.appendChild(changeAv);
+
+  const uploadBtn = document.createElement("button");
+  uploadBtn.className = "btn btn-ghost";
+  uploadBtn.style.position = "absolute";
+  uploadBtn.style.bottom = "0";
+  uploadBtn.style.right = "0";
+  uploadBtn.style.padding = "6px 10px";
+  uploadBtn.style.borderRadius = "50%";
+  uploadBtn.style.width = "36px";
+  uploadBtn.style.height = "36px";
+  uploadBtn.textContent = "📷";
+  uploadBtn.addEventListener("click", () => changeAv.click());
+  avWrap.appendChild(uploadBtn);
+
+  const name = document.createElement("div");
+  name.className = "profile-hero-name";
+  name.textContent = state.profile.username;
+
+  const idEl = document.createElement("div");
+  idEl.className = "profile-hero-id";
+  idEl.textContent = state.profile.nexora_id;
+  idEl.title = "Click to copy";
+  idEl.addEventListener("click", () => {
+    navigator.clipboard.writeText(state.profile.nexora_id);
+    toast("NEXORA ID copied", "success");
+  });
+
+  hero.appendChild(avWrap);
+  hero.appendChild(name);
+  hero.appendChild(idEl);
+  body.appendChild(hero);
+
+  // Edit username
+  const uSection = document.createElement("div");
+  uSection.className = "settings-section";
+  uSection.innerHTML = `<h3>✎ Username</h3>`;
+  const uInput = document.createElement("input");
+  uInput.value = state.profile.username;
+  uInput.maxLength = 24;
+  const uSave = document.createElement("button");
+  uSave.className = "btn btn-primary";
+  uSave.textContent = "Save";
+  uSave.style.marginTop = "10px";
+  uSave.addEventListener("click", async () => {
+    try {
+      const updated = await updateProfile({ username: uInput.value });
+      state.profile.username = updated.username;
+      renderSidebarFooter();
+      toast("Username updated", "success");
+      openProfilePanel();
+    } catch (e) { toast(e.message, "error"); }
+  });
+  uSection.appendChild(uInput);
+  uSection.appendChild(uSave);
+  body.appendChild(uSection);
+
+  // About
+  const aSection = document.createElement("div");
+  aSection.className = "settings-section";
+  aSection.innerHTML = `<h3>ℹ About</h3>`;
+  const aInput = document.createElement("textarea");
+  aInput.value = state.profile.about || "";
+  aInput.maxLength = 300;
+  aInput.rows = 3;
+  aInput.placeholder = "Tell others about you";
+  const aSave = document.createElement("button");
+  aSave.className = "btn btn-primary";
+  aSave.textContent = "Save";
+  aSave.style.marginTop = "10px";
+  aSave.addEventListener("click", async () => {
+    try {
+      const updated = await updateProfile({ about: aInput.value });
+      state.profile.about = updated.about;
+      toast("About updated", "success");
+    } catch (e) { toast(e.message, "error"); }
+  });
+  aSection.appendChild(aInput);
+  aSection.appendChild(aSave);
+  body.appendChild(aSection);
+
+  // Logout
+  const lSection = document.createElement("div");
+  lSection.className = "settings-section";
+  const lo = document.createElement("button");
+  lo.className = "btn btn-danger";
+  lo.textContent = "Log out";
+  lo.addEventListener("click", () => logout());
+  lSection.appendChild(lo);
+  body.appendChild(lSection);
+}
+
+// ============================================================
+// Settings panel
+// ============================================================
+function openSettingsPanel() {
+  closePanel();
+  const panel = document.createElement("div");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <div class="panel-header">
+      <button class="btn-icon" data-close-panel>←</button>
+      <h2>Settings</h2>
+    </div>
+    <div class="panel-body" id="settings-panel-body"></div>
+  `;
+  document.getElementById("main").appendChild(panel);
+  panel.querySelector("[data-close-panel]").addEventListener("click", closePanel);
+  const body = panel.querySelector("#settings-panel-body");
+
+  // Account
+  body.appendChild(accountSection());
+  // Security
+  body.appendChild(securitySection());
+  // Appearance
+  body.appendChild(appearanceSection());
+  // Privacy
+  body.appendChild(privacySection());
+}
+
+function accountSection() {
+  const s = document.createElement("div");
+  s.className = "settings-section";
+  s.innerHTML = `<h3>👤 Account</h3>`;
+
+  const rowId = document.createElement("div");
+  rowId.className = "settings-row";
+  rowId.innerHTML = `
+    <div class="settings-row-info">
+      <div class="settings-row-label">NEXORA ID</div>
+      <div class="settings-row-desc">${escapeHtml(state.profile.nexora_id)}</div>
+    </div>
+  `;
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "btn btn-ghost";
+  copyBtn.textContent = "Copy";
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(state.profile.nexora_id);
+    toast("Copied", "success");
+  });
+  rowId.appendChild(copyBtn);
+  s.appendChild(rowId);
+
+  const rowEmail = document.createElement("div");
+  rowEmail.className = "settings-row";
+  rowEmail.innerHTML = `
+    <div class="settings-row-info">
+      <div class="settings-row-label">Email</div>
+      <div class="settings-row-desc">${escapeHtml(state.user.email || "")}</div>
+    </div>
+  `;
+  const changeEmailBtn = document.createElement("button");
+  changeEmailBtn.className = "btn btn-ghost";
+  changeEmailBtn.textContent = "Change";
+  changeEmailBtn.addEventListener("click", () => {
+    const v = prompt("New email:");
+    if (!v) return;
+    updateEmail(v).then(() => toast("Check your inbox to confirm", "info"))
+      .catch(e => toast(e.message, "error"));
+  });
+  rowEmail.appendChild(changeEmailBtn);
+  s.appendChild(rowEmail);
+
+  return s;
+}
+
+function securitySection() {
+  const s = document.createElement("div");
+  s.className = "settings-section";
+  s.innerHTML = `<h3>🔒 Security</h3>`;
+
+  // Password
+  const rowPwd = document.createElement("div");
+  rowPwd.className = "settings-row";
+  rowPwd.innerHTML = `<div class="settings-row-info">
+    <div class="settings-row-label">Password</div>
+    <div class="settings-row-desc">Change your password</div>
+  </div>`;
+  const changePwdBtn = document.createElement("button");
+  changePwdBtn.className = "btn btn-ghost";
+  changePwdBtn.textContent = "Change";
+  changePwdBtn.addEventListener("click", async () => {
+    const v = prompt("New password (min 8 chars):");
+    if (!v) return;
+    try {
+      await changePassword(v);
+      toast("Password changed", "success");
+    } catch (e) { toast(e.message, "error"); }
+  });
+  rowPwd.appendChild(changePwdBtn);
+  s.appendChild(rowPwd);
+
+  // 2FA
+  const row2fa = document.createElement("div");
+  row2fa.className = "settings-row";
+  row2fa.innerHTML = `<div class="settings-row-info">
+    <div class="settings-row-label">Two-factor authentication</div>
+    <div class="settings-row-desc" id="mfa-status">Checking...</div>
+  </div>`;
+  const mfaBtn = document.createElement("button");
+  mfaBtn.className = "btn btn-ghost";
+  mfaBtn.textContent = "Manage";
+  mfaBtn.id = "mfa-btn";
+  row2fa.appendChild(mfaBtn);
+  s.appendChild(row2fa);
+
+  // Session info
+  const rowSession = document.createElement("div");
+  rowSession.className = "settings-row";
+  rowSession.innerHTML = `<div class="settings-row-info">
+    <div class="settings-row-label">Current session</div>
+    <div class="settings-row-desc" id="session-info">Loading...</div>
+  </div>`;
+  s.appendChild(rowSession);
+
+  // Load state
+  (async () => {
+    try {
+      const factors = await listFactors();
+      const totp = factors.totp || [];
+      const has = totp.length > 0;
+      const status = s.querySelector("#mfa-status");
+      if (status) status.innerHTML = has
+        ? '<span class="badge success">Enabled</span>'
+        : '<span class="badge muted">Disabled</span>';
+      mfaBtn.textContent = has ? "Disable" : "Enable";
+      mfaBtn.onclick = has ? () => disableMfaFlow(totp[0].id) : enableMfaFlow;
+    } catch (e) {
+      const status = s.querySelector("#mfa-status");
+      if (status) status.textContent = "Error: " + e.message;
+    }
+    try {
+      const info = await listActiveSessionInfo();
+      const el = s.querySelector("#session-info");
+      if (el && info) el.textContent =
+        `Last sign in: ${new Date(info.last_sign_in_at).toLocaleString()}`;
+    } catch {}
+  })();
+
+  return s;
+}
+
+async function enableMfaFlow() {
+  try {
+    const data = await enrollTotp();
+    showMfaModal(data, async code => {
+      await verifyTotp(data.id, code);
+      toast("2FA enabled", "success");
+      closePanel();
+      openSettingsPanel();
+    });
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function disableMfaFlow(factorId) {
+  if (!confirm("Disable 2FA?")) return;
+  try {
+    await unenrollFactor(factorId);
+    toast("2FA disabled", "warning");
+    closePanel();
+    openSettingsPanel();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+function showMfaModal(enrollData, onSuccess) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Enable 2FA</div>
+        <button class="modal-close">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-2);font-size:13px;margin-bottom:12px">
+          Scan the QR code with your authenticator app (Google Authenticator, Authy, 1Password).
+        </p>
+        <div class="qr-container" id="qr-holder"></div>
+        <p style="font-size:12px;color:var(--text-3);margin-bottom:6px">Manual secret:</p>
+        <code style="background:var(--bg-2);padding:8px 12px;border-radius:6px;font-size:12px;display:block;word-break:break-all">${escapeHtml(enrollData.totp.secret)}</code>
+        <div style="margin-top:16px">
+          <label class="form-label">Verification code</label>
+          <input class="mfa-code-input" id="mfa-code" maxlength="6" inputmode="numeric" placeholder="000000">
+        </div>
+        <div class="auth-error" id="mfa-error" style="margin-top:10px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="mfa-cancel">Cancel</button>
+        <button class="btn btn-primary" id="mfa-verify">Verify</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  // QR — Supabase возвращает SVG строку в enrollData.totp.qr_code
+  const holder = backdrop.querySelector("#qr-holder");
+  try {
+    // qr_code — data URL или SVG-строка
+    const qr = enrollData.totp.qr_code;
+    if (qr.startsWith("data:")) {
+      const img = document.createElement("img");
+      img.src = qr;
+      holder.appendChild(img);
+    } else if (qr.startsWith("<svg")) {
+      holder.innerHTML = qr;
+    } else {
+      // fallback: показать только secret
+      holder.textContent = "QR unavailable. Use secret below.";
+    }
+  } catch {
+    holder.textContent = "QR unavailable. Use secret below.";
+  }
+
+  const close = () => backdrop.remove();
+  backdrop.querySelector(".modal-close").addEventListener("click", close);
+  backdrop.querySelector("#mfa-cancel").addEventListener("click", close);
+
+  backdrop.querySelector("#mfa-verify").addEventListener("click", async () => {
+    const code = backdrop.querySelector("#mfa-code").value.trim();
+    const errEl = backdrop.querySelector("#mfa-error");
+    errEl.classList.remove("show");
+    if (!/^\d{6}$/.test(code)) {
+      errEl.textContent = "Enter 6-digit code";
+      errEl.classList.add("show");
+      return;
+    }
+    const btn = backdrop.querySelector("#mfa-verify");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      await onSuccess(code);
+      close();
+    } catch (e) {
+      errEl.textContent = e.message || "Invalid code";
+      errEl.classList.add("show");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Verify";
+    }
+  });
+}
+
+function appearanceSection() {
+  const s = document.createElement("div");
+  s.className = "settings-section";
+  s.innerHTML = `<h3>🎨 Appearance</h3>`;
+
+  const row = document.createElement("div");
+  row.className = "settings-row";
+  row.innerHTML = `<div class="settings-row-info">
+    <div class="settings-row-label">Theme</div>
+    <div class="settings-row-desc">Choose your preferred look</div>
+  </div>`;
+
+  const group = document.createElement("div");
+  group.style.display = "flex";
+  group.style.gap = "6px";
+
+  const themes = [
+    { key: "dark", label: "Dark" },
+    { key: "light", label: "Light" },
+    { key: "system", label: "System" },
+  ];
+  const current = localStorage.getItem("nexora-theme") || "dark";
+  themes.forEach(t => {
+    const b = document.createElement("button");
+    b.className = "btn " + (current === t.key ? "btn-primary" : "btn-ghost");
+    b.textContent = t.label;
+    b.dataset.themeChoice = t.key;
+    b.addEventListener("click", () => {
+      applyTheme(t.key);
+      group.querySelectorAll("button").forEach(x => {
+        x.className = "btn btn-ghost";
+      });
+      b.className = "btn btn-primary";
+      toast(`Theme: ${t.label}`, "success");
+    });
+    group.appendChild(b);
+  });
+
+  row.appendChild(group);
+  s.appendChild(row);
+  return s;
+}
+
+function privacySection() {
+  const s = document.createElement("div");
+  s.className = "settings-section";
+  s.innerHTML = `<h3>🛡 Privacy</h3>`;
+
+  // findable
+  const r1 = document.createElement("div");
+  r1.className = "settings-row";
+  r1.innerHTML = `<div class="settings-row-info">
+    <div class="settings-row-label">Discoverable by NEXORA ID</div>
+    <div class="settings-row-desc">Allow others to find you</div>
+  </div>`;
+  const sw1 = document.createElement("div");
+  sw1.className = "switch" + (state.profile.findable ? " on" : "");
+  r1.appendChild(sw1);
+  sw1.addEventListener("click", async () => {
+    const next = !sw1.classList.contains("on");
+    sw1.classList.toggle("on", next);
+    try {
+      await updateProfile({ findable: next });
+      toast("Privacy updated", "success");
+    } catch (e) { sw1.classList.toggle("on", !next); toast(e.message, "error"); }
+  });
+  s.appendChild(r1);
+
+  // show online
+  const r2 = document.createElement("div");
+  r2.className = "settings-row";
+  r2.innerHTML = `<div class="settings-row-info">
+    <div class="settings-row-label">Show online status</div>
+    <div class="settings-row-desc">Others can see when you're active</div>
+  </div>`;
+  const sw2 = document.createElement("div");
+  sw2.className = "switch" + (state.profile.show_online ? " on" : "");
+  r2.appendChild(sw2);
+  sw2.addEventListener("click", async () => {
+    const next = !sw2.classList.contains("on");
+    sw2.classList.toggle("on", next);
+    try {
+      await updateProfile({ show_online: next });
+      toast("Privacy updated", "success");
+    } catch (e) { sw2.classList.toggle("on", !next); toast(e.message, "error"); }
+  });
+  s.appendChild(r2);
+
+  // allow messages
+  const r3 = document.createElement("div");
+  r3.className = "settings-row";
+  r3.innerHTML = `<div class="settings-row-info">
+    <div class="settings-row-label">Who can message me</div>
+    <div class="settings-row-desc">Control who can start chats</div>
+  </div>`;
+  const sel = document.createElement("select");
+  sel.style.width = "140px";
+  ["everyone", "contacts", "nobody"].forEach(v => {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = v.charAt(0).toUpperCase() + v.slice(1);
+    if (state.profile.allow_messages === v) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.addEventListener("change", async () => {
+    try {
+      await updateProfile({ allow_messages: sel.value });
+      toast("Privacy updated", "success");
+    } catch (e) { toast(e.message, "error"); }
+  });
+  r3.appendChild(sel);
+  s.appendChild(r3);
+
+  return s;
+}
