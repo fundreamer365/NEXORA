@@ -1,10 +1,7 @@
 // Используется на login.html и register.html
 import { supabase } from "./supabase.js";
 import { initTheme, toast, validateUsername } from "./utils.js";
-import {
-  register, login, getSession, getAuthenticatorAssuranceLevel,
-  listFactors, verifyTotp
-} from "./auth.js";
+import { register, login } from "./auth.js";
 
 initTheme();
 
@@ -18,31 +15,23 @@ document.addEventListener("DOMContentLoaded", () => {
   if (mfaForm) initMfa();
 });
 
-async function initLogin() {
-  // Если ?mfa=1 — показать форму MFA
+// ============================================================
+// LOGIN
+// ============================================================
+function initLogin() {
   const params = new URLSearchParams(window.location.search);
-  if (params.get("mfa") === "1") {
-    const session = await getSession();
-    if (!session) { window.location.href = "login.html"; return; }
-    const levels = await getAuthenticatorAssuranceLevel();
-    if (levels.currentLevel === "aal2") {
-      window.location.href = "app.html";
-      return;
-    }
-    showMfaForm();
-    return;
-  }
+  const mfaRequired = params.get("mfa") === "1";
 
-  // Уже залогинен?
-  const session = await getSession();
-  if (session) {
-    const levels = await getAuthenticatorAssuranceLevel();
-    if (levels.nextLevel === "aal2" && levels.currentLevel === "aal1") {
-      window.location.href = "login.html?mfa=1";
-      return;
-    }
-    window.location.href = "app.html";
-    return;
+  const loginCard = document.getElementById("login-card");
+  const mfaCard = document.getElementById("mfa-card");
+
+  // Всегда: логин-карточка видна, mfa — по флагу
+  loginCard.classList.remove("hidden");
+  if (mfaRequired) {
+    loginCard.classList.add("hidden");
+    mfaCard.classList.remove("hidden");
+  } else {
+    mfaCard.classList.add("hidden");
   }
 
   const form = document.getElementById("login-form");
@@ -58,27 +47,55 @@ async function initLogin() {
 
     try {
       await login(email, password);
-      const levels = await getAuthenticatorAssuranceLevel();
-      if (levels.nextLevel === "aal2" && levels.currentLevel === "aal1") {
+
+      // Проверяем AAL: если требуется 2FA — редирект на ?mfa=1
+      const { data: aal, error: aalErr } =
+        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aalErr) throw aalErr;
+
+      if (aal.nextLevel === "aal2" && aal.currentLevel === "aal1") {
         window.location.href = "login.html?mfa=1";
         return;
       }
+
       toast("Welcome back!", "success");
       window.location.href = "app.html";
     } catch (err) {
       errEl.textContent = err.message || "Login failed";
       errEl.classList.add("show");
-    } finally {
       btn.disabled = false;
       btn.textContent = "Sign in";
     }
   });
 }
 
-async function showMfaForm() {
-  document.getElementById("login-card").classList.add("hidden");
-  const wrap = document.getElementById("mfa-card");
-  wrap.classList.remove("hidden");
+// ============================================================
+// MFA
+// ============================================================
+async function initMfa() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("mfa") !== "1") {
+    // Ничего не делаем — форма скрыта
+    return;
+  }
+
+  const loginCard = document.getElementById("login-card");
+  const mfaCard = document.getElementById("mfa-card");
+  loginCard.classList.add("hidden");
+  mfaCard.classList.remove("hidden");
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    window.location.href = "login.html";
+    return;
+  }
+
+  // Если уже aal2 — сразу в приложение
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aal && aal.currentLevel === "aal2") {
+    window.location.href = "app.html";
+    return;
+  }
 
   const form = document.getElementById("mfa-form");
   form.addEventListener("submit", async e => {
@@ -89,18 +106,25 @@ async function showMfaForm() {
     errEl.classList.remove("show");
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
+
     try {
-      const { data } = await supabase.auth.mfa.listFactors();
-      const totp = (data.totp || [])[0];
+      const { data: factorsData, error: fErr } = await supabase.auth.mfa.listFactors();
+      if (fErr) throw fErr;
+      const totp = (factorsData.totp || [])[0];
       if (!totp) throw new Error("No TOTP factor found");
-      const { data: ch, error: chErr } = await supabase.auth.mfa.challenge({ factorId: totp.id });
+
+      const { data: challenge, error: chErr } = await supabase.auth.mfa.challenge({
+        factorId: totp.id,
+      });
       if (chErr) throw chErr;
+
       const { error } = await supabase.auth.mfa.verify({
         factorId: totp.id,
-        challengeId: ch.id,
+        challengeId: challenge.id,
         code,
       });
       if (error) throw error;
+
       toast("Verified", "success");
       window.location.href = "app.html";
     } catch (err) {
@@ -112,12 +136,9 @@ async function showMfaForm() {
   });
 }
 
-async function initMfa() {
-  const session = await getSession();
-  if (!session) { window.location.href = "login.html"; return; }
-  showMfaForm();
-}
-
+// ============================================================
+// REGISTER
+// ============================================================
 function initRegister() {
   const form = document.getElementById("register-form");
   form.addEventListener("submit", async e => {
@@ -147,7 +168,6 @@ function initRegister() {
     } catch (err) {
       errEl.textContent = err.message || "Registration failed";
       errEl.classList.add("show");
-    } finally {
       btn.disabled = false;
       btn.textContent = "Create account";
     }
