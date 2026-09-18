@@ -12,14 +12,16 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="brand">NEXORA</div>
-        <button class="btn-icon" id="settings-btn-header" title="Settings" style="display:none"></button>
       </div>
 
       <div class="sidebar-search">
         <div class="search-input-wrap">
           <span class="search-icon">🔍</span>
-          <input id="sidebar-search" type="text" placeholder="Find user by NEXORA ID or username" autocomplete="off">
+          <input id="sidebar-search" type="text"
+                 placeholder="Find user by NEXORA ID or username"
+                 autocomplete="off">
         </div>
+        <button class="new-chat-btn" id="new-chat-btn" title="New group or channel">＋</button>
       </div>
 
       <div class="sidebar-tabs">
@@ -28,7 +30,6 @@
       </div>
 
       <div class="sidebar-body" id="sidebar-body"></div>
-
       <div class="sidebar-footer" id="sidebar-footer"></div>
     </aside>
 
@@ -44,7 +45,14 @@
 
         <div class="composer">
           <div class="composer-inner">
-            <textarea id="composer-input" rows="1" placeholder="Write a message… (Enter to send, Shift+Enter for new line)" maxlength="4000"></textarea>
+            <button class="composer-icon-btn" id="attach-btn" title="Attach file">📎</button>
+            <input type="file" id="attach-input" style="display:none"
+                   accept="image/*,video/*,*/*">
+            <textarea id="composer-input" rows="1"
+                      placeholder="Write a message…  (Enter to send, Shift+Enter new line)"
+                      maxlength="4000"></textarea>
+            <button class="composer-icon-btn" id="emoji-btn" title="Emoji">🙂</button>
+            <button class="composer-icon-btn" id="sticker-btn" title="Stickers">🎨</button>
             <button class="send-btn" id="send-btn" title="Send">➤</button>
           </div>
         </div>
