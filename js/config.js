@@ -1,9 +1,11 @@
-// Значения по умолчанию — заменяются через config.js после клонирования.
-// Файл создаётся вручную на основе config.example.js.
-import { SUPABASE_URL as _U, SUPABASE_ANON_KEY as _K } from "../config.js";
+// Реэкспорт корневого config.js. Все модули js/ импортируют отсюда.
+import {
+  SUPABASE_URL as _URL,
+  SUPABASE_ANON_KEY as _KEY,
+} from "../config.js";
 
-export const SUPABASE_URL = _U;
-export const SUPABASE_ANON_KEY = _K;
+export const SUPABASE_URL = _URL;
+export const SUPABASE_ANON_KEY = _KEY;
 
 export const APP_NAME = "NEXORA";
 export const APP_TAGLINE = "Connect without limits.";
