@@ -1,49 +1,60 @@
 import { supabase } from "./supabase.js";
-import {
-  validateUsername,
-  validateEmail,
-  validatePassword,
-} from "./utils.js";
+import { validateUsername, validatePassword } from "./utils.js";
 
 // ============================================================
-// Регистрация
+// Внутренний "виртуальный" email. Наружу не показывается.
+// Пользователь думает, что логинится по username.
 // ============================================================
-export async function register(email, password, username) {
+const VIRTUAL_DOMAIN = "nexora.local";
+
+function usernameToEmail(username) {
+  return username.toLowerCase().trim() + "@" + VIRTUAL_DOMAIN;
+}
+
+// ============================================================
+// Регистрация (username + password)
+// ============================================================
+export async function register(username, password) {
   const uErr = validateUsername(username);
   if (uErr) throw new Error(uErr);
-  const eErr = validateEmail(email);
-  if (eErr) throw new Error(eErr);
   const pErr = validatePassword(password);
   if (pErr) throw new Error(pErr);
+
+  const email = usernameToEmail(username);
 
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      data: { username },
-      emailRedirectTo: window.location.origin + window.location.pathname.replace(/[^/]*$/, "login.html"),
+      data: { username: username.toLowerCase().trim() },
     },
   });
   if (error) throw error;
 
-  // Если email уже зарегистрирован, Supabase возвращает user с пустым identities
   if (data.user && data.user.identities && data.user.identities.length === 0) {
-    throw new Error("This email is already registered");
+    throw new Error("This username is already taken");
   }
-
   return data;
 }
 
 // ============================================================
-// Вход
+// Вход (username + password)
 // ============================================================
-export async function login(email, password) {
-  const eErr = validateEmail(email);
-  if (eErr) throw new Error(eErr);
+export async function login(username, password) {
+  const uErr = validateUsername(username);
+  if (uErr) throw new Error(uErr);
   if (!password) throw new Error("Password is required");
 
+  const email = usernameToEmail(username);
+
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
+  if (error) {
+    // Supabase возвращает "Invalid login credentials" — переведём на человеческий
+    if (/invalid login/i.test(error.message)) {
+      throw new Error("Wrong username or password");
+    }
+    throw error;
+  }
   return data;
 }
 
@@ -94,7 +105,7 @@ export async function setOnlineStatus(isOnline) {
 }
 
 // ============================================================
-// MFA (TOTP)
+// MFA
 // ============================================================
 export async function listFactors() {
   const { data, error } = await supabase.auth.mfa.listFactors();
@@ -134,9 +145,6 @@ export async function getAuthenticatorAssuranceLevel() {
   return data;
 }
 
-// ============================================================
-// Смена пароля
-// ============================================================
 export async function changePassword(newPassword) {
   const err = validatePassword(newPassword);
   if (err) throw new Error(err);
