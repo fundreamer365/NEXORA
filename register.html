@@ -18,21 +18,20 @@
       <form id="register-form" class="auth-form" autocomplete="on">
         <div class="form-group">
           <label class="form-label" for="reg-username">Username</label>
-          <input id="reg-username" name="username" type="text" required minlength="3" maxlength="24" autocomplete="username">
+          <input id="reg-username" name="username" type="text" required
+                 minlength="3" maxlength="24" autocomplete="username" autofocus>
           <div class="form-hint">3–24 chars: letters, digits, underscore</div>
         </div>
         <div class="form-group">
-          <label class="form-label" for="reg-email">Email</label>
-          <input id="reg-email" name="email" type="email" required autocomplete="email">
-        </div>
-        <div class="form-group">
           <label class="form-label" for="reg-password">Password</label>
-          <input id="reg-password" name="password" type="password" required minlength="8" autocomplete="new-password">
+          <input id="reg-password" name="password" type="password" required
+                 minlength="8" autocomplete="new-password">
           <div class="form-hint">At least 8 characters</div>
         </div>
         <div class="form-group">
           <label class="form-label" for="reg-password2">Confirm password</label>
-          <input id="reg-password2" name="password2" type="password" required minlength="8" autocomplete="new-password">
+          <input id="reg-password2" name="password2" type="password" required
+                 minlength="8" autocomplete="new-password">
         </div>
         <div class="auth-error" id="auth-error"></div>
         <button type="submit" class="btn btn-primary auth-submit">Create account</button>
