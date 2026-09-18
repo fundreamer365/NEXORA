@@ -222,4 +222,168 @@ export function renderMessage(msg, currentUserId, container, prevMsg) {
   row.dataset.createdAt = msg.created_at;
 
   const bubble = document.createElement("div");
-  bubble.className = "msg-b
+  bubble.className = "msg-bubble";
+
+  const content = document.createElement("div");
+  content.className = "msg-content";
+  content.innerHTML = formatMessage(msg.content);
+  bubble.appendChild(content);
+
+  const meta = document.createElement("div");
+  meta.className = "msg-meta";
+  if (msg.edited_at) {
+    const ed = document.createElement("span");
+    ed.className = "msg-edited";
+    ed.textContent = "(edited)";
+    meta.appendChild(ed);
+  }
+  const time = document.createElement("span");
+  time.textContent = formatTime(msg.created_at);
+  meta.appendChild(time);
+  bubble.appendChild(meta);
+
+  row.appendChild(bubble);
+
+  if (isOwn) {
+    const menuBtn = document.createElement("button");
+    menuBtn.className = "msg-menu-btn";
+    menuBtn.textContent = "⋯";
+    menuBtn.title = "Actions";
+    menuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openMessageMenu(e, msg, row);
+    });
+    row.appendChild(menuBtn);
+  }
+
+  cacheMessage(msg);
+  container.appendChild(row);
+  return row;
+}
+
+// ============================================================
+// Контекстное меню сообщения
+// ============================================================
+function openMessageMenu(event, msg, rowEl) {
+  closeContextMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "context-menu";
+  menu.id = "ctx-menu";
+
+  const editBtn = document.createElement("button");
+  editBtn.textContent = "✎ Edit";
+  editBtn.addEventListener("click", () => {
+    closeContextMenu();
+    startEditMessage(msg, rowEl);
+  });
+  menu.appendChild(editBtn);
+
+  const delBtn = document.createElement("button");
+  delBtn.className = "danger";
+  delBtn.textContent = "🗑 Delete";
+  delBtn.addEventListener("click", async () => {
+    closeContextMenu();
+    if (!confirm("Delete this message?")) return;
+    try {
+      await deleteMessage(msg.id);
+      rowEl.remove();
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  });
+  menu.appendChild(delBtn);
+
+  document.body.appendChild(menu);
+
+  const rect = event.target.getBoundingClientRect();
+  const mw = menu.offsetWidth;
+  const mh = menu.offsetHeight;
+  let left = rect.right - mw;
+  let top = rect.bottom + 6;
+  if (top + mh > window.innerHeight) top = rect.top - mh - 6;
+  if (left < 8) left = 8;
+  menu.style.left = left + "px";
+  menu.style.top = top + "px";
+
+  setTimeout(() => {
+    document.addEventListener("click", closeContextMenu, { once: true });
+  }, 0);
+}
+
+export function closeContextMenu() {
+  const m = document.getElementById("ctx-menu");
+  if (m) m.remove();
+}
+
+// ============================================================
+// Inline edit
+// ============================================================
+function startEditMessage(msg, rowEl) {
+  const contentDiv = rowEl.querySelector(".msg-content");
+  const originalHtml = contentDiv.innerHTML;
+
+  contentDiv.innerHTML = "";
+  const ta = document.createElement("textarea");
+  ta.value = msg.content;
+  ta.style.minHeight = "60px";
+  ta.style.background = "transparent";
+  ta.style.border = "1px solid rgba(255,255,255,0.3)";
+  ta.style.color = "inherit";
+  contentDiv.appendChild(ta);
+  ta.focus();
+  ta.select();
+
+  const saveBtn = document.createElement("button");
+  saveBtn.textContent = "Save";
+  saveBtn.className = "btn btn-primary";
+  saveBtn.style.marginTop = "6px";
+  saveBtn.style.padding = "4px 10px";
+  saveBtn.style.fontSize = "12px";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.className = "btn btn-ghost";
+  cancelBtn.style.marginTop = "6px";
+  cancelBtn.style.marginLeft = "6px";
+  cancelBtn.style.padding = "4px 10px";
+  cancelBtn.style.fontSize = "12px";
+
+  contentDiv.appendChild(saveBtn);
+  contentDiv.appendChild(cancelBtn);
+
+  cancelBtn.addEventListener("click", () => {
+    contentDiv.innerHTML = originalHtml;
+  });
+
+  saveBtn.addEventListener("click", async () => {
+    const newContent = ta.value.trim();
+    if (!newContent) return;
+    if (newContent === msg.content) {
+      contentDiv.innerHTML = originalHtml;
+      return;
+    }
+    try {
+      const updated = await editMessage(msg.id, newContent);
+      contentDiv.innerHTML = formatMessage(updated.content);
+      const meta = rowEl.querySelector(".msg-meta");
+      meta.innerHTML = "";
+      const ed = document.createElement("span");
+      ed.className = "msg-edited";
+      ed.textContent = "(edited)";
+      meta.appendChild(ed);
+      const time = document.createElement("span");
+      time.textContent = formatTime(updated.created_at);
+      meta.appendChild(time);
+      cacheMessage(updated);
+    } catch (err) {
+      alert("Error: " + err.message);
+      contentDiv.innerHTML = originalHtml;
+    }
+  });
+
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") cancelBtn.click();
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveBtn.click();
+  });
+}
