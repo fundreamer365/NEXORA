@@ -25,17 +25,17 @@ function initLogin() {
   const loginCard = document.getElementById("login-card");
   const mfaCard = document.getElementById("mfa-card");
 
-  // Всегда: логин-карточка видна, mfa — по флагу
-  loginCard.classList.remove("hidden");
+  // Показываем правильную карточку
   if (mfaRequired) {
     loginCard.classList.add("hidden");
     mfaCard.classList.remove("hidden");
   } else {
+    loginCard.classList.remove("hidden");
     mfaCard.classList.add("hidden");
   }
 
   const form = document.getElementById("login-form");
-  form.addEventListener("submit", async e => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const email = form.email.value.trim();
     const password = form.password.value;
@@ -48,7 +48,7 @@ function initLogin() {
     try {
       await login(email, password);
 
-      // Проверяем AAL: если требуется 2FA — редирект на ?mfa=1
+      // Проверяем, нужен ли MFA-челлендж
       const { data: aal, error: aalErr } =
         await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (aalErr) throw aalErr;
@@ -75,8 +75,7 @@ function initLogin() {
 async function initMfa() {
   const params = new URLSearchParams(window.location.search);
   if (params.get("mfa") !== "1") {
-    // Ничего не делаем — форма скрыта
-    return;
+    return; // форма скрыта, ничего не делаем
   }
 
   const loginCard = document.getElementById("login-card");
@@ -98,7 +97,7 @@ async function initMfa() {
   }
 
   const form = document.getElementById("mfa-form");
-  form.addEventListener("submit", async e => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const code = form.code.value.trim();
     const errEl = document.getElementById("mfa-error");
@@ -108,14 +107,14 @@ async function initMfa() {
     btn.innerHTML = '<span class="spinner"></span>';
 
     try {
-      const { data: factorsData, error: fErr } = await supabase.auth.mfa.listFactors();
+      const { data: factorsData, error: fErr } =
+        await supabase.auth.mfa.listFactors();
       if (fErr) throw fErr;
       const totp = (factorsData.totp || [])[0];
       if (!totp) throw new Error("No TOTP factor found");
 
-      const { data: challenge, error: chErr } = await supabase.auth.mfa.challenge({
-        factorId: totp.id,
-      });
+      const { data: challenge, error: chErr } =
+        await supabase.auth.mfa.challenge({ factorId: totp.id });
       if (chErr) throw chErr;
 
       const { error } = await supabase.auth.mfa.verify({
@@ -141,7 +140,7 @@ async function initMfa() {
 // ============================================================
 function initRegister() {
   const form = document.getElementById("register-form");
-  form.addEventListener("submit", async e => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = form.username.value.trim();
     const email = form.email.value.trim();
@@ -152,7 +151,11 @@ function initRegister() {
     errEl.classList.remove("show");
 
     const uErr = validateUsername(username);
-    if (uErr) { errEl.textContent = uErr; errEl.classList.add("show"); return; }
+    if (uErr) {
+      errEl.textContent = uErr;
+      errEl.classList.add("show");
+      return;
+    }
     if (password !== password2) {
       errEl.textContent = "Passwords do not match";
       errEl.classList.add("show");
@@ -164,7 +167,7 @@ function initRegister() {
     try {
       await register(email, password, username);
       toast("Account created. Check your email to confirm.", "success");
-      setTimeout(() => window.location.href = "login.html", 1500);
+      setTimeout(() => (window.location.href = "login.html"), 1500);
     } catch (err) {
       errEl.textContent = err.message || "Registration failed";
       errEl.classList.add("show");
