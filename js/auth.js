@@ -1,5 +1,9 @@
 import { supabase } from "./supabase.js";
-import { toast, validateUsername, validateEmail, validatePassword } from "./utils.js";
+import {
+  validateUsername,
+  validateEmail,
+  validatePassword,
+} from "./utils.js";
 
 // ============================================================
 // Регистрация
@@ -17,12 +21,12 @@ export async function register(email, password, username) {
     password,
     options: {
       data: { username },
-      emailRedirectTo: window.location.origin + "/login.html",
+      emailRedirectTo: window.location.origin + window.location.pathname.replace(/[^/]*$/, "login.html"),
     },
   });
   if (error) throw error;
 
-  // Проверка: если пользователь уже существует, Supabase может вернуть пустой identities
+  // Если email уже зарегистрирован, Supabase возвращает user с пустым identities
   if (data.user && data.user.identities && data.user.identities.length === 0) {
     throw new Error("This email is already registered");
   }
@@ -47,14 +51,14 @@ export async function login(email, password) {
 // Выход
 // ============================================================
 export async function logout() {
-  await setOnlineStatus(false).catch(() => {});
+  try { await setOnlineStatus(false); } catch (_) {}
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
   window.location.href = "login.html";
 }
 
 // ============================================================
-// Текущая сессия
+// Сессия
 // ============================================================
 export async function getSession() {
   const { data, error } = await supabase.auth.getSession();
@@ -63,7 +67,7 @@ export async function getSession() {
 }
 
 // ============================================================
-// Текущий пользователь (полный профиль)
+// Текущий профиль
 // ============================================================
 export async function getCurrentProfile() {
   const { data: { user } } = await supabase.auth.getUser();
@@ -90,7 +94,7 @@ export async function setOnlineStatus(isOnline) {
 }
 
 // ============================================================
-// MFA (2FA TOTP)
+// MFA (TOTP)
 // ============================================================
 export async function listFactors() {
   const { data, error } = await supabase.auth.mfa.listFactors();
@@ -104,7 +108,7 @@ export async function enrollTotp() {
     friendlyName: "NEXORA TOTP " + Date.now(),
   });
   if (error) throw error;
-  return data; // { id, type, totp: { qr_code, secret, uri } }
+  return data;
 }
 
 export async function verifyTotp(factorId, code) {
@@ -127,7 +131,7 @@ export async function unenrollFactor(factorId) {
 export async function getAuthenticatorAssuranceLevel() {
   const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   if (error) throw error;
-  return data; // { currentLevel, nextLevel, currentAuthenticationMethods }
+  return data;
 }
 
 // ============================================================
