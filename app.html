@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>NEXORA</title>
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">NEXORA</div>
+        <button class="btn-icon" id="settings-btn-header" title="Settings" style="display:none"></button>
+      </div>
+
+      <div class="sidebar-search">
+        <div class="search-input-wrap">
+          <span class="search-icon">🔍</span>
+          <input id="sidebar-search" type="text" placeholder="Find user by NEXORA ID or username" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="sidebar-tabs">
+        <button class="tab-btn active" data-tab="chats">Chats</button>
+        <button class="tab-btn" data-tab="contacts">Contacts</button>
+      </div>
+
+      <div class="sidebar-body" id="sidebar-body"></div>
+
+      <div class="sidebar-footer" id="sidebar-footer"></div>
+    </aside>
+
+    <main class="main" id="main">
+      <div class="welcome" id="welcome"></div>
+
+      <div class="chat-view hidden" id="chat-view">
+        <div class="chat-header" id="chat-header">
+          <button class="mobile-menu-btn" id="mobile-menu-btn">☰</button>
+        </div>
+
+        <div class="messages" id="messages"></div>
+
+        <div class="composer">
+          <div class="composer-inner">
+            <textarea id="composer-input" rows="1" placeholder="Write a message… (Enter to send, Shift+Enter for new line)" maxlength="4000"></textarea>
+            <button class="send-btn" id="send-btn" title="Send">➤</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="js/app-main.js"></script>
+</body>
+</html>
