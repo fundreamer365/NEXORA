@@ -1,17 +1,14 @@
 import { supabase } from "./supabase.js";
-import { formatMessage, formatTime, formatDateLabel } from "./utils.js";
+import { formatMessage, formatTime, formatDateLabel, escapeHtml } from "./utils.js";
+import { humanFileSize } from "./upload.js";
+import { getSystemStickerById } from "./stickers.js";
 
 let realtimeChannel = null;
 let currentChatId = null;
 
-// Хранилище сообщений по id (для доступа к данным из DOM)
 const messagesStore = new Map();
-export function cacheMessage(m) {
-  messagesStore.set(m.id, m);
-}
-export function getCachedMessage(id) {
-  return messagesStore.get(id);
-}
+export function cacheMessage(m) { messagesStore.set(m.id, m); }
+export function getCachedMessage(id) { return messagesStore.get(id); }
 
 // ============================================================
 // Открыть/создать личный чат
@@ -42,21 +39,19 @@ export async function listChats() {
 
   const { data: chats, error: cErr } = await supabase
     .from("chats")
-    .select("id, is_group, title, updated_at")
+    .select("id, is_group, title, type, description, avatar_url, updated_at, owner_id")
     .in("id", chatIds);
   if (cErr) throw cErr;
 
   const { data: allMembers, error: aErr } = await supabase
     .from("chat_members")
-    .select(
-      "chat_id, user_id, profile:profiles!chat_members_user_id_fkey(id, username, nexora_id, avatar_url, is_online, show_online)"
-    )
+    .select("chat_id, user_id, role, profile:profiles!chat_members_user_id_fkey(id, username, nexora_id, avatar_url, system_avatar, is_online, show_online)")
     .in("chat_id", chatIds);
   if (aErr) throw aErr;
 
   const { data: lastMsgs } = await supabase
     .from("messages")
-    .select("chat_id, content, created_at, sender_id")
+    .select("chat_id, content, created_at, sender_id, kind")
     .in("chat_id", chatIds)
     .order("created_at", { ascending: false });
 
@@ -65,31 +60,42 @@ export async function listChats() {
     if (!lastByChat[m.chat_id]) lastByChat[m.chat_id] = m;
   });
 
-  return chats
-    .map((c) => {
-      const members = allMembers.filter((m) => m.chat_id === c.id);
-      const other = members.find((m) => m.user_id !== user.id);
-      const last = lastByChat[c.id];
-      return {
-        id: c.id,
-        is_group: c.is_group,
-        title: c.title,
-        updated_at: c.updated_at,
-        other_user: other ? other.profile : null,
-        last_message: last
-          ? {
-              content: last.content,
-              created_at: last.created_at,
-              is_own: last.sender_id === user.id,
-            }
-          : null,
-      };
-    })
-    .sort((a, b) => {
-      const ta = a.last_message ? a.last_message.created_at : a.updated_at;
-      const tb = b.last_message ? b.last_message.created_at : b.updated_at;
-      return new Date(tb) - new Date(ta);
-    });
+  return chats.map((c) => {
+    const members = allMembers.filter((m) => m.chat_id === c.id);
+    const others = members.filter((m) => m.user_id !== user.id);
+    const myMembership = members.find((m) => m.user_id === user.id);
+    const last = lastByChat[c.id];
+
+    return {
+      id: c.id,
+      is_group: c.is_group,
+      type: c.type || (c.is_group ? "group" : "direct"),
+      title: c.title,
+      description: c.description,
+      avatar_url: c.avatar_url,
+      owner_id: c.owner_id,
+      updated_at: c.updated_at,
+      my_role: myMembership ? myMembership.role : "member",
+      members,
+      other_user: others.length ? others[0].profile : null,
+      display_title:
+        c.type === "direct" || (!c.is_group && others.length)
+          ? (others[0] ? others[0].profile.username : "Chat")
+          : (c.title || "Group"),
+      last_message: last
+        ? {
+            content: last.content,
+            kind: last.kind,
+            created_at: last.created_at,
+            is_own: last.sender_id === user.id,
+          }
+        : null,
+    };
+  }).sort((a, b) => {
+    const ta = a.last_message ? a.last_message.created_at : a.updated_at;
+    const tb = b.last_message ? b.last_message.created_at : b.updated_at;
+    return new Date(tb) - new Date(ta);
+  });
 }
 
 // ============================================================
@@ -98,9 +104,7 @@ export async function listChats() {
 export async function loadMessages(chatId, limit = 200) {
   const { data, error } = await supabase
     .from("messages")
-    .select(
-      "id, chat_id, sender_id, content, edited_at, created_at, attachment_url, attachment_type"
-    )
+    .select("id, chat_id, sender_id, content, kind, sticker_id, attachment_url, attachment_type, file_name, file_size, edited_at, created_at, reply_to")
     .eq("chat_id", chatId)
     .order("created_at", { ascending: true })
     .limit(limit);
@@ -109,7 +113,7 @@ export async function loadMessages(chatId, limit = 200) {
 }
 
 // ============================================================
-// Отправка
+// Отправка сообщения
 // ============================================================
 export async function sendMessage(chatId, content) {
   const trimmed = String(content || "").trim();
@@ -121,7 +125,50 @@ export async function sendMessage(chatId, content) {
 
   const { data, error } = await supabase
     .from("messages")
-    .insert({ chat_id: chatId, sender_id: user.id, content: trimmed })
+    .insert({ chat_id: chatId, sender_id: user.id, content: trimmed, kind: "text" })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function sendAttachmentMessage(chatId, attachment, caption = "") {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      chat_id: chatId,
+      sender_id: user.id,
+      content: caption.slice(0, 4000),
+      kind: attachment.kind,
+      attachment_url: attachment.url,
+      attachment_type: attachment.kind,
+      file_name: attachment.name,
+      file_size: attachment.size || null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function sendStickerMessage(chatId, stickerId, stickerUrl) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  // Для системных стикеров сохраняем только id (URL перегенерируется на клиенте)
+  // Для кастомных — id + url (но мы всё равно умеем по id получить из БД)
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      chat_id: chatId,
+      sender_id: user.id,
+      content: "",
+      kind: "sticker",
+      sticker_id: stickerId,
+    })
     .select()
     .single();
   if (error) throw error;
@@ -149,7 +196,7 @@ export async function deleteMessage(messageId) {
 }
 
 // ============================================================
-// Realtime: сообщения чата
+// Realtime
 // ============================================================
 export function subscribeToChat(chatId, handlers) {
   unsubscribeFromChat();
@@ -184,9 +231,6 @@ export function unsubscribeFromChat() {
   currentChatId = null;
 }
 
-// ============================================================
-// Realtime: профили (online status)
-// ============================================================
 export function subscribeToProfiles(callback) {
   return supabase
     .channel("profiles-watch")
@@ -199,9 +243,9 @@ export function subscribeToProfiles(callback) {
 }
 
 // ============================================================
-// Рендер одного сообщения
+// Рендер сообщения
 // ============================================================
-export function renderMessage(msg, currentUserId, container, prevMsg) {
+export function renderMessage(msg, currentUserId, container, prevMsg, opts = {}) {
   if (
     !prevMsg ||
     new Date(prevMsg.created_at).toDateString() !==
@@ -224,10 +268,24 @@ export function renderMessage(msg, currentUserId, container, prevMsg) {
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble";
 
+  // Имя отправителя в группе
+  if (!isOwn && opts.showSender && opts.senderName) {
+    const sn = document.createElement("div");
+    sn.className = "msg-sender";
+    sn.textContent = opts.senderName;
+    bubble.appendChild(sn);
+  }
+
   const content = document.createElement("div");
   content.className = "msg-content";
-  content.innerHTML = formatMessage(msg.content);
+  renderMessageBody(content, msg);
   bubble.appendChild(content);
+
+  // Реакции
+  const reactionsBox = document.createElement("div");
+  reactionsBox.className = "msg-reactions";
+  reactionsBox.dataset.reactionsFor = msg.id;
+  bubble.appendChild(reactionsBox);
 
   const meta = document.createElement("div");
   meta.className = "msg-meta";
@@ -244,14 +302,25 @@ export function renderMessage(msg, currentUserId, container, prevMsg) {
 
   row.appendChild(bubble);
 
-  if (isOwn) {
+  if (isOwn && msg.kind === "text") {
     const menuBtn = document.createElement("button");
     menuBtn.className = "msg-menu-btn";
     menuBtn.textContent = "⋯";
     menuBtn.title = "Actions";
     menuBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      openMessageMenu(e, msg, row);
+      openMessageMenu(e, msg, row, currentUserId);
+    });
+    row.appendChild(menuBtn);
+  } else if (!isOwn) {
+    // Для чужих сообщений — меню реакций
+    const menuBtn = document.createElement("button");
+    menuBtn.className = "msg-menu-btn";
+    menuBtn.textContent = "⋯";
+    menuBtn.title = "React";
+    menuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openMessageMenu(e, msg, row, currentUserId);
     });
     row.appendChild(menuBtn);
   }
@@ -261,38 +330,207 @@ export function renderMessage(msg, currentUserId, container, prevMsg) {
   return row;
 }
 
+function renderMessageBody(contentEl, msg) {
+  contentEl.innerHTML = "";
+
+  if (msg.kind === "sticker") {
+    const sys = getSystemStickerById(msg.sticker_id);
+    const img = document.createElement("img");
+    img.className = "msg-sticker";
+    img.alt = "sticker";
+    if (sys) {
+      img.src = sys.svg;
+    } else {
+      // Кастомный стикер: id хранится в sticker_id, url — надо найти в БД.
+      // Простейший путь: покажем из attachment_url, если есть; иначе — плейсхолдер.
+      if (msg.attachment_url) img.src = msg.attachment_url;
+      else {
+        img.remove();
+        const ph = document.createElement("div");
+        ph.textContent = "🎨";
+        ph.style.fontSize = "48px";
+        contentEl.appendChild(ph);
+        return;
+      }
+    }
+    contentEl.appendChild(img);
+    if (msg.content) {
+      const cap = document.createElement("div");
+      cap.style.marginTop = "4px";
+      cap.innerHTML = formatMessage(msg.content);
+      contentEl.appendChild(cap);
+    }
+    return;
+  }
+
+  if (msg.kind === "image" && msg.attachment_url) {
+    const img = document.createElement("img");
+    img.className = "msg-image";
+    img.src = msg.attachment_url;
+    img.alt = msg.file_name || "image";
+    img.loading = "lazy";
+    img.addEventListener("click", () => openLightbox(msg.attachment_url, "image"));
+    contentEl.appendChild(img);
+    if (msg.content) {
+      const cap = document.createElement("div");
+      cap.innerHTML = formatMessage(msg.content);
+      contentEl.appendChild(cap);
+    }
+    return;
+  }
+
+  if (msg.kind === "video" && msg.attachment_url) {
+    const video = document.createElement("video");
+    video.className = "msg-video";
+    video.src = msg.attachment_url;
+    video.controls = true;
+    video.preload = "metadata";
+    video.addEventListener("dblclick", () => openLightbox(msg.attachment_url, "video"));
+    contentEl.appendChild(video);
+    if (msg.content) {
+      const cap = document.createElement("div");
+      cap.innerHTML = formatMessage(msg.content);
+      contentEl.appendChild(cap);
+    }
+    return;
+  }
+
+  if (msg.kind === "file" && msg.attachment_url) {
+    const a = document.createElement("a");
+    a.className = "msg-file";
+    a.href = msg.attachment_url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.download = msg.file_name || "";
+    const icon = document.createElement("div");
+    icon.className = "msg-file-icon";
+    icon.textContent = pickFileIcon(msg.file_name);
+    const body = document.createElement("div");
+    body.className = "msg-file-body";
+    const name = document.createElement("div");
+    name.className = "msg-file-name";
+    name.textContent = msg.file_name || "File";
+    const size = document.createElement("div");
+    size.className = "msg-file-size";
+    size.textContent = humanFileSize(msg.file_size);
+    body.appendChild(name);
+    body.appendChild(size);
+    a.appendChild(icon);
+    a.appendChild(body);
+    contentEl.appendChild(a);
+    if (msg.content) {
+      const cap = document.createElement("div");
+      cap.style.marginTop = "4px";
+      cap.innerHTML = formatMessage(msg.content);
+      contentEl.appendChild(cap);
+    }
+    return;
+  }
+
+  // Обычный текст
+  contentEl.innerHTML = formatMessage(msg.content || "");
+}
+
+function pickFileIcon(name) {
+  if (!name) return "📄";
+  const ext = name.split(".").pop().toLowerCase();
+  if (["zip","rar","7z","tar","gz"].includes(ext)) return "🗜️";
+  if (["pdf"].includes(ext)) return "📕";
+  if (["doc","docx","rtf","odt"].includes(ext)) return "📘";
+  if (["xls","xlsx","csv","ods"].includes(ext)) return "📗";
+  if (["ppt","pptx","odp"].includes(ext)) return "📙";
+  if (["mp3","wav","ogg","flac","m4a"].includes(ext)) return "🎵";
+  if (["mp4","mov","avi","mkv","webm"].includes(ext)) return "🎬";
+  if (["js","ts","py","java","c","cpp","go","rs","rb","php","html","css","json","xml"].includes(ext)) return "💻";
+  return "📄";
+}
+
+function openLightbox(url, kind) {
+  const lb = document.createElement("div");
+  lb.className = "lightbox";
+  let node;
+  if (kind === "video") {
+    node = document.createElement("video");
+    node.src = url;
+    node.controls = true;
+    node.autoplay = true;
+  } else {
+    node = document.createElement("img");
+    node.src = url;
+  }
+  const close = document.createElement("button");
+  close.className = "lightbox-close";
+  close.textContent = "×";
+  close.addEventListener("click", (e) => { e.stopPropagation(); lb.remove(); });
+  lb.appendChild(node);
+  lb.appendChild(close);
+  lb.addEventListener("click", () => lb.remove());
+  document.body.appendChild(lb);
+}
+
 // ============================================================
-// Контекстное меню сообщения
+// Контекстное меню
 // ============================================================
-function openMessageMenu(event, msg, rowEl) {
+function openMessageMenu(event, msg, rowEl, currentUserId) {
   closeContextMenu();
 
+  const isOwn = msg.sender_id === currentUserId;
   const menu = document.createElement("div");
   menu.className = "context-menu";
   menu.id = "ctx-menu";
 
-  const editBtn = document.createElement("button");
-  editBtn.textContent = "✎ Edit";
-  editBtn.addEventListener("click", () => {
-    closeContextMenu();
-    startEditMessage(msg, rowEl);
+  // Реакции
+  const reactionsBar = document.createElement("div");
+  reactionsBar.className = "reaction-bar";
+  reactionsBar.style.marginBottom = "4px";
+  import("./reactions.js").then(({ quickReactions }) => {
+    quickReactions().forEach(emoji => {
+      const b = document.createElement("button");
+      b.textContent = emoji;
+      b.addEventListener("click", async () => {
+        closeContextMenu();
+        try {
+          const { toggleReaction } = await import("./reactions.js");
+          await toggleReaction(msg.id, emoji, currentUserId);
+        } catch (e) { console.error(e); }
+      });
+      reactionsBar.appendChild(b);
+    });
   });
-  menu.appendChild(editBtn);
+  menu.appendChild(reactionsBar);
 
-  const delBtn = document.createElement("button");
-  delBtn.className = "danger";
-  delBtn.textContent = "🗑 Delete";
-  delBtn.addEventListener("click", async () => {
+  if (isOwn && msg.kind === "text") {
+    const editBtn = document.createElement("button");
+    editBtn.textContent = "✎ Edit";
+    editBtn.addEventListener("click", () => {
+      closeContextMenu();
+      startEditMessage(msg, rowEl);
+    });
+    menu.appendChild(editBtn);
+  }
+
+  const copyBtn = document.createElement("button");
+  copyBtn.textContent = "📋 Copy";
+  copyBtn.addEventListener("click", () => {
     closeContextMenu();
-    if (!confirm("Delete this message?")) return;
-    try {
-      await deleteMessage(msg.id);
-      rowEl.remove();
-    } catch (err) {
-      alert("Error: " + err.message);
-    }
+    navigator.clipboard.writeText(msg.content || msg.attachment_url || "");
   });
-  menu.appendChild(delBtn);
+  menu.appendChild(copyBtn);
+
+  if (isOwn) {
+    const delBtn = document.createElement("button");
+    delBtn.className = "danger";
+    delBtn.textContent = "🗑 Delete";
+    delBtn.addEventListener("click", async () => {
+      closeContextMenu();
+      if (!confirm("Delete this message?")) return;
+      try {
+        await deleteMessage(msg.id);
+        rowEl.remove();
+      } catch (err) { alert("Error: " + err.message); }
+    });
+    menu.appendChild(delBtn);
+  }
 
   document.body.appendChild(menu);
 
@@ -352,17 +590,12 @@ function startEditMessage(msg, rowEl) {
   contentDiv.appendChild(saveBtn);
   contentDiv.appendChild(cancelBtn);
 
-  cancelBtn.addEventListener("click", () => {
-    contentDiv.innerHTML = originalHtml;
-  });
+  cancelBtn.addEventListener("click", () => { contentDiv.innerHTML = originalHtml; });
 
   saveBtn.addEventListener("click", async () => {
     const newContent = ta.value.trim();
     if (!newContent) return;
-    if (newContent === msg.content) {
-      contentDiv.innerHTML = originalHtml;
-      return;
-    }
+    if (newContent === msg.content) { contentDiv.innerHTML = originalHtml; return; }
     try {
       const updated = await editMessage(msg.id, newContent);
       contentDiv.innerHTML = formatMessage(updated.content);
@@ -387,3 +620,5 @@ function startEditMessage(msg, rowEl) {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveBtn.click();
   });
 }
+
+void escapeHtml;
