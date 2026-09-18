@@ -1,4 +1,4 @@
-// Используется на login.html и register.html
+// login.html и register.html
 import { supabase } from "./supabase.js";
 import { initTheme, toast, validateUsername } from "./utils.js";
 import { register, login } from "./auth.js";
@@ -25,7 +25,6 @@ function initLogin() {
   const loginCard = document.getElementById("login-card");
   const mfaCard = document.getElementById("mfa-card");
 
-  // Показываем правильную карточку
   if (mfaRequired) {
     loginCard.classList.add("hidden");
     mfaCard.classList.remove("hidden");
@@ -37,7 +36,7 @@ function initLogin() {
   const form = document.getElementById("login-form");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email = form.email.value.trim();
+    const username = form.username.value.trim();
     const password = form.password.value;
     const errEl = document.getElementById("auth-error");
     const btn = form.querySelector("button[type=submit]");
@@ -46,9 +45,8 @@ function initLogin() {
     btn.innerHTML = '<span class="spinner"></span>';
 
     try {
-      await login(email, password);
+      await login(username, password);
 
-      // Проверяем, нужен ли MFA-челлендж
       const { data: aal, error: aalErr } =
         await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (aalErr) throw aalErr;
@@ -74,9 +72,7 @@ function initLogin() {
 // ============================================================
 async function initMfa() {
   const params = new URLSearchParams(window.location.search);
-  if (params.get("mfa") !== "1") {
-    return; // форма скрыта, ничего не делаем
-  }
+  if (params.get("mfa") !== "1") return;
 
   const loginCard = document.getElementById("login-card");
   const mfaCard = document.getElementById("mfa-card");
@@ -89,7 +85,6 @@ async function initMfa() {
     return;
   }
 
-  // Если уже aal2 — сразу в приложение
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   if (aal && aal.currentLevel === "aal2") {
     window.location.href = "app.html";
@@ -107,8 +102,7 @@ async function initMfa() {
     btn.innerHTML = '<span class="spinner"></span>';
 
     try {
-      const { data: factorsData, error: fErr } =
-        await supabase.auth.mfa.listFactors();
+      const { data: factorsData, error: fErr } = await supabase.auth.mfa.listFactors();
       if (fErr) throw fErr;
       const totp = (factorsData.totp || [])[0];
       if (!totp) throw new Error("No TOTP factor found");
@@ -143,7 +137,6 @@ function initRegister() {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = form.username.value.trim();
-    const email = form.email.value.trim();
     const password = form.password.value;
     const password2 = form.password2.value;
     const errEl = document.getElementById("auth-error");
@@ -151,11 +144,7 @@ function initRegister() {
     errEl.classList.remove("show");
 
     const uErr = validateUsername(username);
-    if (uErr) {
-      errEl.textContent = uErr;
-      errEl.classList.add("show");
-      return;
-    }
+    if (uErr) { errEl.textContent = uErr; errEl.classList.add("show"); return; }
     if (password !== password2) {
       errEl.textContent = "Passwords do not match";
       errEl.classList.add("show");
@@ -165,9 +154,18 @@ function initRegister() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
     try {
-      await register(email, password, username);
-      toast("Account created. Check your email to confirm.", "success");
-      setTimeout(() => (window.location.href = "login.html"), 1500);
+      await register(username, password);
+      toast("Account created. Signing you in...", "success");
+
+      // Сразу логинимся, чтобы не гонять пользователя по кругу
+      await login(username, password);
+
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aal && aal.nextLevel === "aal2" && aal.currentLevel === "aal1") {
+        window.location.href = "login.html?mfa=1";
+        return;
+      }
+      window.location.href = "app.html";
     } catch (err) {
       errEl.textContent = err.message || "Registration failed";
       errEl.classList.add("show");
