@@ -71,5 +71,15 @@ export async function getUserProfile(userId) {
     .eq("id", userId)
     .single();
   if (error) throw error;
+
+  // Добавь в конец js/profile.js
+
+export async function setSystemAvatar(dataUrl) {
+  return updateProfile({ system_avatar: dataUrl, avatar_url: null });
+}
+
+export async function clearAvatar() {
+  return updateProfile({ system_avatar: null, avatar_url: null });
+}
   return data;
 }
