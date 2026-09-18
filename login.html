@@ -17,12 +17,14 @@
 
       <form id="login-form" class="auth-form" autocomplete="on">
         <div class="form-group">
-          <label class="form-label" for="login-email">Email</label>
-          <input id="login-email" name="email" type="email" required autocomplete="email">
+          <label class="form-label" for="login-username">Username</label>
+          <input id="login-username" name="username" type="text" required
+                 autocomplete="username" autofocus>
         </div>
         <div class="form-group">
           <label class="form-label" for="login-password">Password</label>
-          <input id="login-password" name="password" type="password" required autocomplete="current-password">
+          <input id="login-password" name="password" type="password" required
+                 autocomplete="current-password">
         </div>
         <div class="auth-error" id="auth-error"></div>
         <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
@@ -42,7 +44,8 @@
       <form id="mfa-form" class="auth-form">
         <div class="form-group">
           <label class="form-label" for="mfa-code">6-digit code from your app</label>
-          <input id="mfa-code" name="code" class="mfa-code-input" maxlength="6" inputmode="numeric" placeholder="000000" required autofocus>
+          <input id="mfa-code" name="code" class="mfa-code-input" maxlength="6"
+                 inputmode="numeric" placeholder="000000" required autofocus>
         </div>
         <div class="auth-error" id="mfa-error"></div>
         <button type="submit" class="btn btn-primary auth-submit">Verify</button>
