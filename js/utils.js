@@ -21,15 +21,17 @@ export function toast(message, type = "info", title = null) {
 
   const body = document.createElement("div");
   body.className = "toast-body";
+
   const t = document.createElement("div");
   t.className = "toast-title";
   t.textContent = title || titles[type] || "Info";
+
   const m = document.createElement("div");
   m.className = "toast-msg";
   m.textContent = message;
+
   body.appendChild(t);
   body.appendChild(m);
-
   el.appendChild(icon);
   el.appendChild(body);
   container.appendChild(el);
@@ -41,8 +43,7 @@ export function toast(message, type = "info", title = null) {
 }
 
 // ============================================================
-// Markdown → безопасный HTML
-// Полностью экранируем HTML перед разметкой.
+// Экранирование HTML
 // ============================================================
 export function escapeHtml(str) {
   return String(str)
@@ -61,38 +62,38 @@ function escapeAttr(str) {
     .replace(/>/g, "&gt;");
 }
 
-/**
- * Безопасный парсер сообщений.
- * Порядок: escape → markdown → URL-автолинк (безопасный).
- */
+// ============================================================
+// Безопасный markdown-форматтер сообщений
+// ============================================================
 export function formatMessage(raw) {
   let text = escapeHtml(raw);
 
-  // Код `...` — до всего остального
+  // `code`
   text = text.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c}</code>`);
 
-  // Жирный **...**
+  // **bold**
   text = text.replace(/\*\*([^\n*]+?)\*\*/g, "<strong>$1</strong>");
 
-  // Курсив *...*
+  // *italic*
   text = text.replace(/(^|[^*])\*([^\n*]+?)\*(?!\*)/g, "$1<em>$2</em>");
 
-  // Зачёркнутый ~~...~~
+  // ~~strike~~
   text = text.replace(/~~([^\n~]+?)~~/g, "<del>$1</del>");
 
-  // Цитата > в начале строки
+  // > quote
   text = text.replace(/(^|\n)&gt;\s?(.+)/g, "$1<blockquote>$2</blockquote>");
 
-  // Markdown-ссылки [text](url)
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => {
-    const safe = escapeAttr(url);
-    // Проверяем схему после escape
-    if (!/^https?:\/\//i.test(url)) return label;
-    return `<a href="${safe}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>`;
-  });
+  // [text](url)
+  text = text.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_, label, url) => {
+      if (!/^https?:\/\//i.test(url)) return label;
+      const safe = escapeAttr(url);
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>`;
+    }
+  );
 
-  // Автолинк обычных URL (не внутри href / уже сформированных ссылок).
-  // Обрабатываем через токенизацию — чтобы не сломать существующие <a>.
+  // Автолинк URL, не внутри уже готовых <a>
   const parts = [];
   let lastIndex = 0;
   const existingLinkRe = /<a [^>]*>.*?<\/a>/g;
@@ -112,7 +113,6 @@ export function formatMessage(raw) {
 }
 
 function autolink(segment) {
-  // Не трогаем содержимое внутри <code>...</code> — упрощённо: пропускаем сегменты в тегах
   return segment.replace(
     /(^|[\s>])((?:https?:\/\/)[^\s<]+)/g,
     (_, prefix, url) => {
@@ -123,7 +123,7 @@ function autolink(segment) {
 }
 
 // ============================================================
-// Время
+// Форматирование времени
 // ============================================================
 export function formatTime(iso) {
   const d = new Date(iso);
@@ -137,8 +137,11 @@ export function formatTime(iso) {
   if (d.toDateString() === yesterday.toDateString()) {
     return "Yesterday " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
-  return d.toLocaleDateString([], { day: "2-digit", month: "short" }) + " " +
-    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    d.toLocaleDateString([], { day: "2-digit", month: "short" }) +
+    " " +
+    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  );
 }
 
 export function formatDateLabel(iso) {
@@ -152,26 +155,29 @@ export function formatDateLabel(iso) {
 }
 
 // ============================================================
-// Avatar helper
+// Avatar
 // ============================================================
-export function avatarNode(user, size = "md") {
-  const el = document.createElement("div");
-  el.className = `avatar avatar-${size}`;
-  if (user?.avatar_url) {
-    const img = document.createElement("img");
-    img.src = user.avatar_url;
-    img.alt = user.username || "";
-    img.onerror = () => { img.remove(); el.textContent = initials(user?.username); };
-    el.appendChild(img);
-  } else {
-    el.textContent = initials(user?.username);
-  }
-  return el;
-}
-
 export function initials(name) {
   if (!name) return "?";
   return name.trim().charAt(0).toUpperCase();
+}
+
+export function avatarNode(user, size = "md") {
+  const el = document.createElement("div");
+  el.className = `avatar avatar-${size}`;
+  if (user && user.avatar_url) {
+    const img = document.createElement("img");
+    img.src = user.avatar_url;
+    img.alt = user.username || "";
+    img.onerror = () => {
+      img.remove();
+      el.textContent = initials(user.username);
+    };
+    el.appendChild(img);
+  } else {
+    el.textContent = initials(user && user.username);
+  }
+  return el;
 }
 
 // ============================================================
@@ -208,7 +214,7 @@ export function validatePassword(p) {
 }
 
 // ============================================================
-// Theme
+// Тема
 // ============================================================
 export function applyTheme(theme) {
   const root = document.documentElement;
@@ -224,8 +230,12 @@ export function applyTheme(theme) {
 export function initTheme() {
   const saved = localStorage.getItem("nexora-theme") || "dark";
   applyTheme(saved);
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if ((localStorage.getItem("nexora-theme") || "dark") === "system") applyTheme("system");
-  });
+  window
+    .matchMedia("(prefers-color-scheme: dark)")
+    .addEventListener("change", () => {
+      if ((localStorage.getItem("nexora-theme") || "dark") === "system") {
+        applyTheme("system");
+      }
+    });
   return saved;
 }
