@@ -11,14 +11,14 @@ export async function listContacts() {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return (data || []).map(r => ({
+  return (data || []).map((r) => ({
     user_id: r.contact_id,
-    username: r.profile?.username,
-    nexora_id: r.profile?.nexora_id,
-    avatar_url: r.profile?.avatar_url,
-    is_online: r.profile?.is_online,
-    show_online: r.profile?.show_online,
-    about: r.profile?.about,
+    username: r.profile ? r.profile.username : null,
+    nexora_id: r.profile ? r.profile.nexora_id : null,
+    avatar_url: r.profile ? r.profile.avatar_url : null,
+    is_online: r.profile ? r.profile.is_online : false,
+    show_online: r.profile ? r.profile.show_online : true,
+    about: r.profile ? r.profile.about : "",
   }));
 }
 
