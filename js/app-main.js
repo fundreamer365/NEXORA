@@ -1,32 +1,52 @@
 import { supabase } from "./supabase.js";
 import {
-  toast, initTheme, avatarNode, debounce, formatTime, formatMessage,
-  escapeHtml, initials
+  toast,
+  initTheme,
+  avatarNode,
+  debounce,
+  formatTime,
+  formatMessage,
+  escapeHtml,
 } from "./utils.js";
 import {
-  getSession, getCurrentProfile, logout, setOnlineStatus
+  getSession,
+  getCurrentProfile,
+  logout,
+  setOnlineStatus,
 } from "./auth.js";
 import {
-  searchUserByQuery, updateProfile, uploadAvatar, getUserProfile
+  searchUserByQuery,
+  updateProfile,
+  uploadAvatar,
 } from "./profile.js";
 import {
-  listContacts, addContact, removeContact, isContact
+  listContacts,
+  addContact,
 } from "./contacts.js";
 import {
-  openDirectChat, listChats, loadMessages, sendMessage,
-  subscribeToChat, unsubscribeFromChat, renderMessage,
-  subscribeToProfiles, closeContextMenu
+  openDirectChat,
+  listChats,
+  loadMessages,
+  sendMessage,
+  subscribeToChat,
+  unsubscribeFromChat,
+  renderMessage,
+  subscribeToProfiles,
+  closeContextMenu,
+  getCachedMessage,
 } from "./chat.js";
 import {
-  initAppearanceSettings, initPrivacySettings, updateEmail
-} from "./settings.js";
-import {
-  listFactors, enrollTotp, verifyTotp, unenrollFactor, changePassword,
-  requiresMfaChallenge, listActiveSessionInfo
+  listFactors,
+  enrollTotp,
+  verifyTotp,
+  unenrollFactor,
+  changePassword,
+  listActiveSessionInfo,
 } from "./security.js";
+import { updateEmail } from "./settings.js";
 
 // ============================================================
-// Global state
+// State
 // ============================================================
 const state = {
   user: null,
@@ -36,6 +56,7 @@ const state = {
   chats: [],
   contacts: [],
   activeTab: "chats",
+  searchQuery: "",
   profileSubChannel: null,
 };
 
@@ -43,7 +64,6 @@ const state = {
 // Boot
 // ============================================================
 initTheme();
-
 document.addEventListener("DOMContentLoaded", boot);
 
 async function boot() {
@@ -54,24 +74,26 @@ async function boot() {
   }
   state.user = session.user;
 
-  // Проверка на MFA challenge
-  if (await requiresMfaChallenge()) {
-    window.location.href = "login.html?mfa=1";
-    return;
-  }
-
   try {
     state.profile = await getCurrentProfile();
   } catch (e) {
-    toast("Failed to load profile", "error");
+    toast("Failed to load profile: " + e.message, "error");
+    return;
+  }
+  if (!state.profile) {
+    // Триггер не создал профиль — редкий случай
+    toast("Profile not found. Re-login.", "error");
+    await logout();
     return;
   }
 
-  await setOnlineStatus(true);
+  await setOnlineStatus(true).catch(() => {});
 
-  // Обработка beforeunload
   window.addEventListener("beforeunload", () => {
-    supabase.from("profiles").update({ is_online: false }).eq("id", state.user.id);
+    supabase
+      .from("profiles")
+      .update({ is_online: false })
+      .eq("id", state.user.id);
   });
   document.addEventListener("visibilitychange", () => {
     setOnlineStatus(!document.hidden).catch(() => {});
@@ -88,40 +110,34 @@ async function boot() {
 }
 
 // ============================================================
-// UI bindings
+// Bindings
 // ============================================================
 function bindEvents() {
-  // Sidebar tabs
-  document.querySelectorAll(".tab-btn").forEach(btn => {
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       state.activeTab = btn.dataset.tab;
       renderSidebarBody();
     });
   });
 
-  // Search
   const searchInput = document.getElementById("sidebar-search");
-  searchInput.addEventListener("input", debounce(e => {
-    state.searchQuery = e.target.value.trim();
-    renderSidebarBody();
-  }, 200));
+  searchInput.addEventListener(
+    "input",
+    debounce((e) => {
+      state.searchQuery = e.target.value.trim();
+      renderSidebarBody();
+    }, 200)
+  );
 
-  // Sidebar footer / profile
   document.getElementById("sidebar-footer").addEventListener("click", openProfilePanel);
 
-  // Panels close
-  document.querySelectorAll("[data-close-panel]").forEach(el => {
-    el.addEventListener("click", closePanel);
-  });
-
-  // Send button
   const composer = document.getElementById("composer-input");
   const sendBtn = document.getElementById("send-btn");
   if (composer && sendBtn) {
     composer.addEventListener("input", () => autoResize(composer));
-    composer.addEventListener("keydown", e => {
+    composer.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         sendBtn.click();
@@ -130,16 +146,16 @@ function bindEvents() {
     sendBtn.addEventListener("click", onSendMessage);
   }
 
-  // Mobile menu
   const mobileBtn = document.getElementById("mobile-menu-btn");
   if (mobileBtn) {
     mobileBtn.addEventListener("click", () => {
       document.getElementById("sidebar").classList.remove("hidden-mobile");
     });
   }
-  document.getElementById("sidebar").addEventListener("click", e => {
+  const sidebar = document.getElementById("sidebar");
+  sidebar.addEventListener("click", (e) => {
     if (window.innerWidth <= 860 && e.target.closest(".list-item")) {
-      document.getElementById("sidebar").classList.add("hidden-mobile");
+      sidebar.classList.add("hidden-mobile");
     }
   });
 
@@ -156,17 +172,21 @@ function autoResize(ta) {
 // ============================================================
 function renderSidebarFooter() {
   const el = document.getElementById("sidebar-footer");
+  if (!el) return;
   el.innerHTML = "";
 
   const av = avatarNode(state.profile, "md");
   const body = document.createElement("div");
   body.className = "sidebar-footer-body";
+
   const name = document.createElement("div");
   name.className = "sidebar-footer-name";
   name.textContent = state.profile.username;
+
   const id = document.createElement("div");
   id.className = "sidebar-footer-id";
   id.textContent = state.profile.nexora_id;
+
   body.appendChild(name);
   body.appendChild(id);
 
@@ -174,7 +194,7 @@ function renderSidebarFooter() {
   settingsBtn.className = "btn-icon";
   settingsBtn.textContent = "⚙";
   settingsBtn.title = "Settings";
-  settingsBtn.addEventListener("click", e => {
+  settingsBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     openSettingsPanel();
   });
@@ -185,21 +205,19 @@ function renderSidebarFooter() {
 }
 
 // ============================================================
-// Sidebar body: chats / contacts / search results
+// Sidebar body
 // ============================================================
 function renderSidebarBody() {
   const body = document.getElementById("sidebar-body");
   body.innerHTML = "";
 
-  const q = state.searchQuery || "";
-
-  if (q) {
-    renderSearchResults(body, q);
+  if (state.searchQuery) {
+    renderSearchResults(body, state.searchQuery);
     return;
   }
 
   if (state.activeTab === "chats") renderChatsList(body);
-  else if (state.activeTab === "contacts") renderContactsList(body);
+  else renderContactsList(body);
 }
 
 async function renderSearchResults(container, query) {
@@ -298,7 +316,7 @@ function renderChatsList(container) {
     return;
   }
 
-  state.chats.forEach(chat => {
+  state.chats.forEach((chat) => {
     const item = document.createElement("div");
     item.className = "list-item" + (chat.id === state.activeChatId ? " active" : "");
     item.dataset.chatId = chat.id;
@@ -311,18 +329,22 @@ function renderChatsList(container) {
 
     const title = document.createElement("div");
     title.className = "list-item-title";
+
     const titleName = document.createElement("span");
     titleName.textContent = peer.username || "Chat";
+
     const titleTime = document.createElement("span");
     titleTime.className = "list-item-time";
     if (chat.last_message) titleTime.textContent = formatTime(chat.last_message.created_at);
+
     title.appendChild(titleName);
     title.appendChild(titleTime);
 
     const sub = document.createElement("div");
     sub.className = "list-item-sub";
     if (chat.last_message) {
-      sub.textContent = (chat.last_message.is_own ? "You: " : "") +
+      sub.textContent =
+        (chat.last_message.is_own ? "You: " : "") +
         chat.last_message.content.slice(0, 60);
     } else {
       sub.textContent = "No messages yet";
@@ -330,7 +352,6 @@ function renderChatsList(container) {
 
     body.appendChild(title);
     body.appendChild(sub);
-
     item.appendChild(av);
     item.appendChild(body);
 
@@ -354,7 +375,7 @@ function renderContactsList(container) {
     return;
   }
 
-  state.contacts.forEach(c => {
+  state.contacts.forEach((c) => {
     const item = document.createElement("div");
     item.className = "list-item";
 
@@ -382,7 +403,7 @@ function renderContactsList(container) {
     msgBtn.textContent = "Open";
     msgBtn.style.padding = "4px 10px";
     msgBtn.style.fontSize = "12px";
-    msgBtn.addEventListener("click", async e => {
+    msgBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const chatId = await openDirectChat(c.user_id);
       await refreshChats();
@@ -398,14 +419,18 @@ async function refreshChats() {
   try {
     state.chats = await listChats();
     renderSidebarBody();
-  } catch (e) { toast(e.message, "error"); }
+  } catch (e) {
+    toast(e.message, "error");
+  }
 }
 
 async function refreshContacts() {
   try {
     state.contacts = await listContacts();
     renderSidebarBody();
-  } catch (e) { toast(e.message, "error"); }
+  } catch (e) {
+    toast(e.message, "error");
+  }
 }
 
 // ============================================================
@@ -428,7 +453,9 @@ async function openChat(chatId, peer) {
   let msgs = [];
   try {
     msgs = await loadMessages(chatId);
-  } catch (e) { toast("Failed to load messages", "error"); }
+  } catch (e) {
+    toast("Failed to load messages", "error");
+  }
 
   let prev = null;
   for (const m of msgs) {
@@ -439,9 +466,9 @@ async function openChat(chatId, peer) {
 
   unsubscribeFromChat();
   subscribeToChat(chatId, {
-    onInsert: m => onRealtimeInsert(m),
-    onUpdate: m => onRealtimeUpdate(m),
-    onDelete: m => onRealtimeDelete(m),
+    onInsert: (m) => onRealtimeInsert(m),
+    onUpdate: (m) => onRealtimeUpdate(m),
+    onDelete: (m) => onRealtimeDelete(m),
   });
 
   refreshChats();
@@ -451,6 +478,14 @@ function renderChatHeader(peer) {
   const header = document.getElementById("chat-header");
   header.innerHTML = "";
 
+  const mobileBtn = document.createElement("button");
+  mobileBtn.className = "mobile-menu-btn";
+  mobileBtn.textContent = "☰";
+  mobileBtn.addEventListener("click", () => {
+    document.getElementById("sidebar").classList.remove("hidden-mobile");
+  });
+  header.appendChild(mobileBtn);
+
   const av = avatarNode(peer, "md");
 
   const body = document.createElement("div");
@@ -458,15 +493,16 @@ function renderChatHeader(peer) {
 
   const name = document.createElement("div");
   name.className = "chat-header-name";
-  name.textContent = peer?.username || "Chat";
+  name.textContent = (peer && peer.username) || "Chat";
 
   const dot = document.createElement("span");
-  dot.className = "online-dot" + (peer?.is_online && peer?.show_online !== false ? " online" : "");
+  const online = peer && peer.is_online && peer.show_online !== false;
+  dot.className = "online-dot" + (online ? " online" : "");
   name.appendChild(dot);
 
   const id = document.createElement("div");
   id.className = "chat-header-id";
-  id.textContent = peer?.nexora_id || "";
+  id.textContent = (peer && peer.nexora_id) || "";
 
   body.appendChild(name);
   body.appendChild(id);
@@ -483,42 +519,30 @@ function onRealtimeInsert(m) {
     refreshChats();
     return;
   }
-  // Игнорируем эхо собственного сообщения — уже отрисовано
   if (m.sender_id === state.user.id) return;
 
   const container = document.getElementById("messages");
   const rows = container.querySelectorAll(".msg-row");
   const lastRow = rows[rows.length - 1];
-  const lastMsg = lastRow ? { created_at: lastRow.dataset.createdAt } : null;
+  let prevMsg = null;
+  if (lastRow) {
+    const cached = getCachedMessage(lastRow.dataset.messageId);
+    prevMsg = cached || { created_at: lastRow.dataset.createdAt };
+  }
 
-  // Найдём последнее реальное сообщение по data-атрибуту (мы его не ставим, но можем взять дату из DOM-порядка).
-  // Проще: разделитель отрисуем, если последний элемент — не .msg-row или его дата отличается.
-  const lastMsgEl = Array.from(container.querySelectorAll(".msg-row")).pop();
-  const prevMsgObj = lastMsgEl ? getMsgFromRow(lastMsgEl) : null;
-
-  renderMessage(m, state.user.id, container, prevMsgObj);
-  // Пометим дату в data атрибут
-  const newRow = Array.from(container.querySelectorAll(".msg-row")).pop();
-  if (newRow) newRow.dataset.createdAt = m.created_at;
+  renderMessage(m, state.user.id, container, prevMsg);
   scrollToBottom();
   refreshChats();
-}
-
-// Храним сообщения на элементе
-const messagesStore = new Map();
-export function cacheMessage(m) { messagesStore.set(m.id, m); }
-
-function getMsgFromRow(rowEl) {
-  const id = rowEl.dataset.messageId;
-  return messagesStore.get(id) || { created_at: rowEl.dataset.createdAt };
 }
 
 function onRealtimeUpdate(m) {
   if (m.chat_id !== state.activeChatId) return;
   const row = document.querySelector(`.msg-row[data-message-id="${m.id}"]`);
   if (!row) return;
+
   const contentDiv = row.querySelector(".msg-content");
   if (contentDiv) contentDiv.innerHTML = formatMessage(m.content);
+
   const meta = row.querySelector(".msg-meta");
   if (meta) {
     meta.innerHTML = "";
@@ -547,16 +571,14 @@ function onProfileUpdate(p) {
     state.activeChatPeer.avatar_url = p.avatar_url;
     renderChatHeader(state.activeChatPeer);
   }
-  // Обновим в контактах
-  const idx = state.contacts.findIndex(c => c.user_id === p.id);
+  const idx = state.contacts.findIndex((c) => c.user_id === p.id);
   if (idx >= 0) {
     state.contacts[idx].is_online = p.is_online;
     state.contacts[idx].username = p.username;
     state.contacts[idx].avatar_url = p.avatar_url;
     renderSidebarBody();
   }
-  // Обновим в чатах
-  state.chats.forEach(c => {
+  state.chats.forEach((c) => {
     if (c.other_user && c.other_user.id === p.id) {
       c.other_user.is_online = p.is_online;
       c.other_user.username = p.username;
@@ -567,7 +589,7 @@ function onProfileUpdate(p) {
 }
 
 // ============================================================
-// Отправка сообщения
+// Отправка
 // ============================================================
 async function onSendMessage() {
   const input = document.getElementById("composer-input");
@@ -585,19 +607,28 @@ async function onSendMessage() {
     edited_at: null,
     created_at: new Date().toISOString(),
   };
+
   const container = document.getElementById("messages");
-  renderMessage(optimistic, state.user.id, container, getLastMsgFromDom());
+  const rows = container.querySelectorAll(".msg-row");
+  const lastRow = rows[rows.length - 1];
+  let prevMsg = null;
+  if (lastRow) {
+    const cached = getCachedMessage(lastRow.dataset.messageId);
+    prevMsg = cached || { created_at: lastRow.dataset.createdAt };
+  }
+
+  renderMessage(optimistic, state.user.id, container, prevMsg);
   scrollToBottom();
 
   try {
     const saved = await sendMessage(state.activeChatId, content);
-    // Заменим temp id
     const tempRow = document.querySelector(`.msg-row[data-message-id="${optimistic.id}"]`);
     if (tempRow) {
       tempRow.dataset.messageId = saved.id;
       tempRow.dataset.createdAt = saved.created_at;
+      // Обновим кэш
+      getCachedMessage(saved.id);
     }
-    cacheMessage(saved);
     refreshChats();
   } catch (e) {
     toast(e.message, "error");
@@ -606,41 +637,38 @@ async function onSendMessage() {
   }
 }
 
-function getLastMsgFromDom() {
-  const rows = document.querySelectorAll(".msg-row");
-  const last = rows[rows.length - 1];
-  if (!last) return null;
-  return { created_at: last.dataset.createdAt || new Date().toISOString() };
-}
-
 function scrollToBottom() {
   const el = document.getElementById("messages");
-  requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+  requestAnimationFrame(() => {
+    el.scrollTop = el.scrollHeight;
+  });
 }
 
 // ============================================================
 // Panels
 // ============================================================
 function closePanel() {
-  document.querySelectorAll(".panel").forEach(p => p.remove());
+  document.querySelectorAll(".panel").forEach((p) => p.remove());
 }
 
-// ============================================================
-// Welcome
-// ============================================================
 function renderWelcome() {
   const w = document.getElementById("welcome");
+  w.innerHTML = "";
+
   const logo = document.createElement("div");
   logo.className = "welcome-logo";
   logo.textContent = "NEXORA";
+
   const tag = document.createElement("div");
   tag.className = "welcome-tagline";
   tag.textContent = "Connect without limits.";
+
   const hint = document.createElement("div");
   hint.style.marginTop = "24px";
   hint.style.fontSize = "13px";
   hint.style.color = "var(--text-3)";
   hint.textContent = "Search a NEXORA ID or pick a chat on the left.";
+
   w.appendChild(logo);
   w.appendChild(tag);
   w.appendChild(hint);
@@ -677,7 +705,7 @@ function openProfilePanel() {
   changeAv.type = "file";
   changeAv.accept = "image/*";
   changeAv.style.display = "none";
-  changeAv.addEventListener("change", async e => {
+  changeAv.addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     try {
@@ -687,7 +715,9 @@ function openProfilePanel() {
       renderSidebarFooter();
       openProfilePanel();
       toast("Avatar updated", "success");
-    } catch (err) { toast(err.message, "error"); }
+    } catch (err) {
+      toast(err.message, "error");
+    }
   });
   avWrap.appendChild(changeAv);
 
@@ -696,7 +726,7 @@ function openProfilePanel() {
   uploadBtn.style.position = "absolute";
   uploadBtn.style.bottom = "0";
   uploadBtn.style.right = "0";
-  uploadBtn.style.padding = "6px 10px";
+  uploadBtn.style.padding = "6px";
   uploadBtn.style.borderRadius = "50%";
   uploadBtn.style.width = "36px";
   uploadBtn.style.height = "36px";
@@ -722,7 +752,7 @@ function openProfilePanel() {
   hero.appendChild(idEl);
   body.appendChild(hero);
 
-  // Edit username
+  // Username
   const uSection = document.createElement("div");
   uSection.className = "settings-section";
   uSection.innerHTML = `<h3>✎ Username</h3>`;
@@ -740,7 +770,9 @@ function openProfilePanel() {
       renderSidebarFooter();
       toast("Username updated", "success");
       openProfilePanel();
-    } catch (e) { toast(e.message, "error"); }
+    } catch (e) {
+      toast(e.message, "error");
+    }
   });
   uSection.appendChild(uInput);
   uSection.appendChild(uSave);
@@ -764,7 +796,9 @@ function openProfilePanel() {
       const updated = await updateProfile({ about: aInput.value });
       state.profile.about = updated.about;
       toast("About updated", "success");
-    } catch (e) { toast(e.message, "error"); }
+    } catch (e) {
+      toast(e.message, "error");
+    }
   });
   aSection.appendChild(aInput);
   aSection.appendChild(aSave);
@@ -799,13 +833,9 @@ function openSettingsPanel() {
   panel.querySelector("[data-close-panel]").addEventListener("click", closePanel);
   const body = panel.querySelector("#settings-panel-body");
 
-  // Account
   body.appendChild(accountSection());
-  // Security
   body.appendChild(securitySection());
-  // Appearance
   body.appendChild(appearanceSection());
-  // Privacy
   body.appendChild(privacySection());
 }
 
@@ -846,8 +876,9 @@ function accountSection() {
   changeEmailBtn.addEventListener("click", () => {
     const v = prompt("New email:");
     if (!v) return;
-    updateEmail(v).then(() => toast("Check your inbox to confirm", "info"))
-      .catch(e => toast(e.message, "error"));
+    updateEmail(v)
+      .then(() => toast("Check your inbox to confirm", "info"))
+      .catch((e) => toast(e.message, "error"));
   });
   rowEmail.appendChild(changeEmailBtn);
   s.appendChild(rowEmail);
@@ -860,7 +891,6 @@ function securitySection() {
   s.className = "settings-section";
   s.innerHTML = `<h3>🔒 Security</h3>`;
 
-  // Password
   const rowPwd = document.createElement("div");
   rowPwd.className = "settings-row";
   rowPwd.innerHTML = `<div class="settings-row-info">
@@ -876,12 +906,13 @@ function securitySection() {
     try {
       await changePassword(v);
       toast("Password changed", "success");
-    } catch (e) { toast(e.message, "error"); }
+    } catch (e) {
+      toast(e.message, "error");
+    }
   });
   rowPwd.appendChild(changePwdBtn);
   s.appendChild(rowPwd);
 
-  // 2FA
   const row2fa = document.createElement("div");
   row2fa.className = "settings-row";
   row2fa.innerHTML = `<div class="settings-row-info">
@@ -891,11 +922,9 @@ function securitySection() {
   const mfaBtn = document.createElement("button");
   mfaBtn.className = "btn btn-ghost";
   mfaBtn.textContent = "Manage";
-  mfaBtn.id = "mfa-btn";
   row2fa.appendChild(mfaBtn);
   s.appendChild(row2fa);
 
-  // Session info
   const rowSession = document.createElement("div");
   rowSession.className = "settings-row";
   rowSession.innerHTML = `<div class="settings-row-info">
@@ -904,18 +933,20 @@ function securitySection() {
   </div>`;
   s.appendChild(rowSession);
 
-  // Load state
   (async () => {
     try {
       const factors = await listFactors();
-      const totp = factors.totp || [];
+      const totp = (factors && factors.totp) || [];
       const has = totp.length > 0;
       const status = s.querySelector("#mfa-status");
-      if (status) status.innerHTML = has
-        ? '<span class="badge success">Enabled</span>'
-        : '<span class="badge muted">Disabled</span>';
+      if (status)
+        status.innerHTML = has
+          ? '<span class="badge success">Enabled</span>'
+          : '<span class="badge muted">Disabled</span>';
       mfaBtn.textContent = has ? "Disable" : "Enable";
-      mfaBtn.onclick = has ? () => disableMfaFlow(totp[0].id) : enableMfaFlow;
+      mfaBtn.onclick = has
+        ? () => disableMfaFlow(totp[0].id)
+        : enableMfaFlow;
     } catch (e) {
       const status = s.querySelector("#mfa-status");
       if (status) status.textContent = "Error: " + e.message;
@@ -923,9 +954,10 @@ function securitySection() {
     try {
       const info = await listActiveSessionInfo();
       const el = s.querySelector("#session-info");
-      if (el && info) el.textContent =
-        `Last sign in: ${new Date(info.last_sign_in_at).toLocaleString()}`;
-    } catch {}
+      if (el && info)
+        el.textContent =
+          "Last sign in: " + new Date(info.last_sign_in_at).toLocaleString();
+    } catch (_) {}
   })();
 
   return s;
@@ -934,13 +966,15 @@ function securitySection() {
 async function enableMfaFlow() {
   try {
     const data = await enrollTotp();
-    showMfaModal(data, async code => {
+    showMfaModal(data, async (code) => {
       await verifyTotp(data.id, code);
       toast("2FA enabled", "success");
       closePanel();
       openSettingsPanel();
     });
-  } catch (e) { toast(e.message, "error"); }
+  } catch (e) {
+    toast(e.message, "error");
+  }
 }
 
 async function disableMfaFlow(factorId) {
@@ -950,7 +984,9 @@ async function disableMfaFlow(factorId) {
     toast("2FA disabled", "warning");
     closePanel();
     openSettingsPanel();
-  } catch (e) { toast(e.message, "error"); }
+  } catch (e) {
+    toast(e.message, "error");
+  }
 }
 
 function showMfaModal(enrollData, onSuccess) {
@@ -968,7 +1004,7 @@ function showMfaModal(enrollData, onSuccess) {
         </p>
         <div class="qr-container" id="qr-holder"></div>
         <p style="font-size:12px;color:var(--text-3);margin-bottom:6px">Manual secret:</p>
-        <code style="background:var(--bg-2);padding:8px 12px;border-radius:6px;font-size:12px;display:block;word-break:break-all">${escapeHtml(enrollData.totp.secret)}</code>
+        <code id="mfa-secret" style="background:var(--bg-2);padding:8px 12px;border-radius:6px;font-size:12px;display:block;word-break:break-all"></code>
         <div style="margin-top:16px">
           <label class="form-label">Verification code</label>
           <input class="mfa-code-input" id="mfa-code" maxlength="6" inputmode="numeric" placeholder="000000">
@@ -983,23 +1019,29 @@ function showMfaModal(enrollData, onSuccess) {
   `;
   document.body.appendChild(backdrop);
 
-  // QR — Supabase возвращает SVG строку в enrollData.totp.qr_code
+  // Заполняем QR и секрет безопасно (без innerHTML для данных)
   const holder = backdrop.querySelector("#qr-holder");
-  try {
-    // qr_code — data URL или SVG-строка
-    const qr = enrollData.totp.qr_code;
-    if (qr.startsWith("data:")) {
-      const img = document.createElement("img");
-      img.src = qr;
-      holder.appendChild(img);
-    } else if (qr.startsWith("<svg")) {
-      holder.innerHTML = qr;
+  const secretEl = backdrop.querySelector("#mfa-secret");
+  const qr = enrollData.totp.qr_code;
+  const secret = enrollData.totp.secret;
+  secretEl.textContent = secret;
+
+  if (typeof qr === "string" && qr.startsWith("data:")) {
+    const img = document.createElement("img");
+    img.src = qr;
+    img.alt = "QR code";
+    holder.appendChild(img);
+  } else if (typeof qr === "string" && qr.startsWith("<svg")) {
+    // Supabase отдаёт SVG-строку — безопасно вставим как inline через DOMParser
+    const doc = new DOMParser().parseFromString(qr, "image/svg+xml");
+    const svg = doc.documentElement;
+    if (svg && svg.tagName.toLowerCase() === "svg") {
+      holder.appendChild(document.importNode(svg, true));
     } else {
-      // fallback: показать только secret
-      holder.textContent = "QR unavailable. Use secret below.";
+      holder.textContent = "QR unavailable. Use the secret below.";
     }
-  } catch {
-    holder.textContent = "QR unavailable. Use secret below.";
+  } else {
+    holder.textContent = "QR unavailable. Use the secret below.";
   }
 
   const close = () => backdrop.remove();
@@ -1053,18 +1095,18 @@ function appearanceSection() {
     { key: "system", label: "System" },
   ];
   const current = localStorage.getItem("nexora-theme") || "dark";
-  themes.forEach(t => {
+  themes.forEach((t) => {
     const b = document.createElement("button");
     b.className = "btn " + (current === t.key ? "btn-primary" : "btn-ghost");
     b.textContent = t.label;
     b.dataset.themeChoice = t.key;
     b.addEventListener("click", () => {
       applyTheme(t.key);
-      group.querySelectorAll("button").forEach(x => {
+      group.querySelectorAll("button").forEach((x) => {
         x.className = "btn btn-ghost";
       });
       b.className = "btn btn-primary";
-      toast(`Theme: ${t.label}`, "success");
+      toast("Theme: " + t.label, "success");
     });
     group.appendChild(b);
   });
@@ -1079,7 +1121,6 @@ function privacySection() {
   s.className = "settings-section";
   s.innerHTML = `<h3>🛡 Privacy</h3>`;
 
-  // findable
   const r1 = document.createElement("div");
   r1.className = "settings-row";
   r1.innerHTML = `<div class="settings-row-info">
@@ -1094,12 +1135,15 @@ function privacySection() {
     sw1.classList.toggle("on", next);
     try {
       await updateProfile({ findable: next });
+      state.profile.findable = next;
       toast("Privacy updated", "success");
-    } catch (e) { sw1.classList.toggle("on", !next); toast(e.message, "error"); }
+    } catch (e) {
+      sw1.classList.toggle("on", !next);
+      toast(e.message, "error");
+    }
   });
   s.appendChild(r1);
 
-  // show online
   const r2 = document.createElement("div");
   r2.className = "settings-row";
   r2.innerHTML = `<div class="settings-row-info">
@@ -1114,12 +1158,15 @@ function privacySection() {
     sw2.classList.toggle("on", next);
     try {
       await updateProfile({ show_online: next });
+      state.profile.show_online = next;
       toast("Privacy updated", "success");
-    } catch (e) { sw2.classList.toggle("on", !next); toast(e.message, "error"); }
+    } catch (e) {
+      sw2.classList.toggle("on", !next);
+      toast(e.message, "error");
+    }
   });
   s.appendChild(r2);
 
-  // allow messages
   const r3 = document.createElement("div");
   r3.className = "settings-row";
   r3.innerHTML = `<div class="settings-row-info">
@@ -1128,7 +1175,7 @@ function privacySection() {
   </div>`;
   const sel = document.createElement("select");
   sel.style.width = "140px";
-  ["everyone", "contacts", "nobody"].forEach(v => {
+  ["everyone", "contacts", "nobody"].forEach((v) => {
     const o = document.createElement("option");
     o.value = v;
     o.textContent = v.charAt(0).toUpperCase() + v.slice(1);
@@ -1138,11 +1185,17 @@ function privacySection() {
   sel.addEventListener("change", async () => {
     try {
       await updateProfile({ allow_messages: sel.value });
+      state.profile.allow_messages = sel.value;
       toast("Privacy updated", "success");
-    } catch (e) { toast(e.message, "error"); }
+    } catch (e) {
+      toast(e.message, "error");
+    }
   });
   r3.appendChild(sel);
   s.appendChild(r3);
 
   return s;
 }
+
+// Глушим неиспользуемый warning
+void formatMessage;
