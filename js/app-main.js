@@ -43,7 +43,6 @@ import {
   changePassword,
   listActiveSessionInfo,
 } from "./security.js";
-import { updateEmail } from "./settings.js";
 
 // ============================================================
 // State
