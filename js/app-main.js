@@ -31,7 +31,9 @@ import { uploadAttachment, humanFileSize } from "./upload.js";
 import {
   createGroupChat, addChatMember, listChatMembers, updateChat, uploadChatAvatar,
 } from "./groups.js";
-import { loadReactionsForChat, toggleReaction } from "./reactions.js";
+import {
+  loadReactionsForChat, toggleReaction, subscribeToReactions,
+} from "./reactions.js";
 
 // ============================================================
 // State
@@ -48,8 +50,8 @@ const state = {
   searchQuery: "",
   profileSubChannel: null,
   reactionsSubChannel: null,
-  reactionsByMessage: {}, // { [msgId]: { emoji: [userId,...] } }
-  membersByChat: {},      // { [chatId]: [...] }
+  reactionsByMessage: {},
+  membersByChat: {},
   pendingAttachment: null,
 };
 
@@ -57,15 +59,45 @@ const state = {
 // Boot
 // ============================================================
 initTheme();
-document.addEventListener("DOMContentLoaded", boot);
+
+window.addEventListener("error", (e) => {
+  console.error("[NEXORA] Uncaught error:", e.error || e.message);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("[NEXORA] Unhandled rejection:", e.reason);
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+  boot().catch(err => {
+    console.error("[NEXORA] boot failed:", err);
+    toast("Failed to start: " + (err.message || err), "error");
+    // Покажем сообщение в main, чтобы не было пустого экрана
+    const main = document.getElementById("main");
+    if (main && !document.getElementById("chat-view").classList.contains("hidden") === false) {
+      // не трогаем, если уже открыт чат
+    }
+    const welcome = document.getElementById("welcome");
+    if (welcome) {
+      welcome.classList.remove("hidden");
+      welcome.innerHTML = `
+        <div class="welcome-logo">NEXORA</div>
+        <div class="welcome-tagline" style="color:var(--error)">
+          Startup error: ${escapeHtml(err.message || String(err))}
+        </div>
+        <div style="margin-top:24px;color:var(--text-3);font-size:13px">
+          Открой DevTools → Console и посмотри подробности.
+        </div>
+      `;
+    }
+  });
+});
 
 async function boot() {
   const session = await getSession();
   if (!session) { window.location.href = "login.html"; return; }
   state.user = session.user;
 
-  try { state.profile = await getCurrentProfile(); }
-  catch (e) { toast("Failed to load profile: " + e.message, "error"); return; }
+  state.profile = await getCurrentProfile();
   if (!state.profile) { await logout(); return; }
 
   await setOnlineStatus(true).catch(() => {});
@@ -78,12 +110,16 @@ async function boot() {
   });
 
   renderSidebarFooter();
-  await refreshChats();
-  await refreshContacts();
-  state.profileSubChannel = subscribeToProfiles(onProfileUpdate);
-
   bindEvents();
   renderWelcome();
+
+  // Эти два запроса могут упасть — не валим весь boot
+  try { await refreshChats(); } catch (e) { console.error(e); toast("Chats: " + e.message, "error"); }
+  try { await refreshContacts(); } catch (e) { console.error(e); toast("Contacts: " + e.message, "error"); }
+
+  try {
+    state.profileSubChannel = subscribeToProfiles(onProfileUpdate);
+  } catch (e) { console.error("profiles sub:", e); }
 }
 
 // ============================================================
@@ -100,13 +136,18 @@ function bindEvents() {
   });
 
   const searchInput = document.getElementById("sidebar-search");
-  searchInput.addEventListener("input", debounce((e) => {
-    state.searchQuery = e.target.value.trim();
-    renderSidebarBody();
-  }, 200));
+  if (searchInput) {
+    searchInput.addEventListener("input", debounce((e) => {
+      state.searchQuery = e.target.value.trim();
+      renderSidebarBody();
+    }, 200));
+  }
 
-  document.getElementById("sidebar-footer").addEventListener("click", openProfilePanel);
-  document.getElementById("new-chat-btn").addEventListener("click", openNewChatDialog);
+  const footer = document.getElementById("sidebar-footer");
+  if (footer) footer.addEventListener("click", openProfilePanel);
+
+  const newChatBtn = document.getElementById("new-chat-btn");
+  if (newChatBtn) newChatBtn.addEventListener("click", openNewChatDialog);
 
   const composer = document.getElementById("composer-input");
   const sendBtn = document.getElementById("send-btn");
@@ -118,23 +159,28 @@ function bindEvents() {
     sendBtn.addEventListener("click", onSendMessage);
   }
 
-  document.getElementById("emoji-btn").addEventListener("click", (e) => {
+  const emojiBtn = document.getElementById("emoji-btn");
+  if (emojiBtn) emojiBtn.addEventListener("click", (e) => {
     e.stopPropagation(); toggleEmojiPicker();
   });
-  document.getElementById("sticker-btn").addEventListener("click", (e) => {
+  const stickerBtn = document.getElementById("sticker-btn");
+  if (stickerBtn) stickerBtn.addEventListener("click", (e) => {
     e.stopPropagation(); toggleStickerPicker();
   });
-  document.getElementById("attach-btn").addEventListener("click", () => {
-    document.getElementById("attach-input").click();
+  const attachBtn = document.getElementById("attach-btn");
+  if (attachBtn) attachBtn.addEventListener("click", () => {
+    const inp = document.getElementById("attach-input");
+    if (inp) inp.click();
   });
-  document.getElementById("attach-input").addEventListener("change", onAttachPick);
+  const attachInput = document.getElementById("attach-input");
+  if (attachInput) attachInput.addEventListener("change", onAttachPick);
 
   const mobileBtn = document.getElementById("mobile-menu-btn");
   if (mobileBtn) mobileBtn.addEventListener("click", () => {
     document.getElementById("sidebar").classList.remove("hidden-mobile");
   });
   const sidebar = document.getElementById("sidebar");
-  sidebar.addEventListener("click", (e) => {
+  if (sidebar) sidebar.addEventListener("click", (e) => {
     if (window.innerWidth <= 860 && e.target.closest(".list-item")) {
       sidebar.classList.add("hidden-mobile");
     }
@@ -142,7 +188,6 @@ function bindEvents() {
 
   document.addEventListener("click", (e) => {
     closeContextMenu();
-    // Закрываем пикер, если клик вне
     const picker = document.getElementById("picker");
     if (picker && !picker.contains(e.target) &&
         !e.target.closest("#emoji-btn") && !e.target.closest("#sticker-btn")) {
@@ -163,6 +208,7 @@ function renderSidebarFooter() {
   const el = document.getElementById("sidebar-footer");
   if (!el) return;
   el.innerHTML = "";
+  if (!state.profile) return;
 
   const wrap = document.createElement("div");
   wrap.className = "avatar-wrap";
@@ -176,10 +222,10 @@ function renderSidebarFooter() {
   body.className = "sidebar-footer-body";
   const name = document.createElement("div");
   name.className = "sidebar-footer-name";
-  name.textContent = state.profile.username;
+  name.textContent = state.profile.username || "User";
   const id = document.createElement("div");
   id.className = "sidebar-footer-id";
-  id.textContent = state.profile.nexora_id;
+  id.textContent = state.profile.nexora_id || "";
   body.appendChild(name);
   body.appendChild(id);
 
@@ -196,6 +242,7 @@ function renderSidebarFooter() {
 
 function renderSidebarBody() {
   const body = document.getElementById("sidebar-body");
+  if (!body) return;
   body.innerHTML = "";
 
   if (state.searchQuery) { renderSearchResults(body, state.searchQuery); return; }
@@ -294,7 +341,6 @@ function renderChatsList(container) {
     item.className = "list-item" + (chat.id === state.activeChatId ? " active" : "");
     item.dataset.chatId = chat.id;
 
-    // Аватар
     const av = chatAvatarNode(chat);
 
     const body = document.createElement("div");
@@ -433,13 +479,13 @@ function renderContactsList(container) {
 }
 
 async function refreshChats() {
-  try { state.chats = await listChats(); renderSidebarBody(); }
-  catch (e) { toast(e.message, "error"); }
+  state.chats = await listChats();
+  renderSidebarBody();
 }
 
 async function refreshContacts() {
-  try { state.contacts = await listContacts(); renderSidebarBody(); }
-  catch (e) { toast(e.message, "error"); }
+  state.contacts = await listContacts();
+  renderSidebarBody();
 }
 
 // ============================================================
@@ -452,11 +498,11 @@ async function openChat(chatId) {
   state.activeChat = chat;
   state.activeChatPeer = chat && chat.type === "direct" ? chat.other_user : null;
 
-  document.getElementById("welcome").classList.add("hidden");
+  const welcome = document.getElementById("welcome");
+  if (welcome) welcome.classList.add("hidden");
   const chatView = document.getElementById("chat-view");
   chatView.classList.remove("hidden");
 
-  // Загрузим участников
   try {
     const members = await listChatMembers(chatId);
     state.membersByChat[chatId] = members;
@@ -469,9 +515,8 @@ async function openChat(chatId) {
 
   let msgs = [];
   try { msgs = await loadMessages(chatId); }
-  catch (e) { toast("Failed to load messages", "error"); }
+  catch (e) { toast("Failed to load messages: " + e.message, "error"); }
 
-  // Загрузим реакции
   try { state.reactionsByMessage = await loadReactionsForChat(chatId); }
   catch (_) { state.reactionsByMessage = {}; }
 
@@ -498,37 +543,37 @@ async function openChat(chatId) {
   });
 
   if (state.reactionsSubChannel) {
-    supabase.removeChannel(state.reactionsSubChannel);
+    try { supabase.removeChannel(state.reactionsSubChannel); } catch (_) {}
   }
   state.reactionsSubChannel = subscribeToReactions(chatId, () => reloadReactions(chatId));
 
-  // Композер: для канала — только owner/admin
   updateComposerForChannel(chat);
 
-  refreshChats();
+  refreshChats().catch(() => {});
 }
 
 function updateComposerForChannel(chat) {
-  const composer = document.querySelector(".composer");
-  if (!composer) return;
-  const blocked = chat && chat.type === "channel" &&
-    chat.my_role !== "owner" && chat.my_role !== "admin";
   const input = document.getElementById("composer-input");
   const btn = document.getElementById("send-btn");
   const attachBtn = document.getElementById("attach-btn");
   const emojiBtn = document.getElementById("emoji-btn");
   const stickerBtn = document.getElementById("sticker-btn");
+  if (!input) return;
+
+  const blocked = chat && chat.type === "channel" &&
+    chat.my_role !== "owner" && chat.my_role !== "admin";
+
   if (blocked) {
     input.disabled = true;
     input.placeholder = "Only admins can post in this channel";
-    btn.disabled = true;
+    if (btn) btn.disabled = true;
     if (attachBtn) attachBtn.disabled = true;
     if (emojiBtn) emojiBtn.disabled = true;
     if (stickerBtn) stickerBtn.disabled = true;
   } else {
     input.disabled = false;
     input.placeholder = "Write a message…  (Enter to send, Shift+Enter new line)";
-    btn.disabled = false;
+    if (btn) btn.disabled = false;
     if (attachBtn) attachBtn.disabled = false;
     if (emojiBtn) emojiBtn.disabled = false;
     if (stickerBtn) stickerBtn.disabled = false;
@@ -537,6 +582,7 @@ function updateComposerForChannel(chat) {
 
 function renderChatHeader(chat) {
   const header = document.getElementById("chat-header");
+  if (!header) return;
   header.innerHTML = "";
 
   const mobileBtn = document.createElement("button");
@@ -547,10 +593,7 @@ function renderChatHeader(chat) {
   });
   header.appendChild(mobileBtn);
 
-  if (!chat) {
-    header.appendChild(document.createElement("div"));
-    return;
-  }
+  if (!chat) return;
 
   const av = chatAvatarNode(chat);
   const body = document.createElement("div");
@@ -588,7 +631,7 @@ function renderChatHeader(chat) {
 // Realtime
 // ============================================================
 function onRealtimeInsert(m, chat) {
-  if (m.chat_id !== state.activeChatId) { refreshChats(); return; }
+  if (m.chat_id !== state.activeChatId) { refreshChats().catch(() => {}); return; }
   if (m.sender_id === state.user.id) return;
 
   const container = document.getElementById("messages");
@@ -606,7 +649,7 @@ function onRealtimeInsert(m, chat) {
     senderName: sender ? sender.username : "User",
   });
   scrollToBottom();
-  refreshChats();
+  refreshChats().catch(() => {});
 }
 
 function onRealtimeUpdate(m) {
@@ -650,7 +693,6 @@ function onProfileUpdate(p) {
     state.contacts[idx].username = p.username;
     state.contacts[idx].avatar_url = p.avatar_url;
     state.contacts[idx].system_avatar = p.system_avatar;
-    renderSidebarBody();
   }
   state.chats.forEach((c) => {
     if (c.other_user && c.other_user.id === p.id) {
@@ -701,7 +743,6 @@ async function onSendMessage() {
   const content = input.value.trim();
   if (!state.activeChatId) return;
 
-  // Если есть pending attachment — шлём его
   if (state.pendingAttachment) {
     input.value = "";
     autoResize(input);
@@ -730,7 +771,7 @@ async function onSendMessage() {
       const saved = await sendAttachmentMessage(state.activeChatId, att, content);
       const tmp = document.querySelector(`.msg-row[data-message-id="${optimistic.id}"]`);
       if (tmp) { tmp.dataset.messageId = saved.id; }
-      refreshChats();
+      refreshChats().catch(() => {});
     } catch (e) {
       toast(e.message, "error");
       const tmp = document.querySelector(`.msg-row[data-message-id="${optimistic.id}"]`);
@@ -761,7 +802,7 @@ async function onSendMessage() {
     const saved = await sendMessage(state.activeChatId, content);
     const tmp = document.querySelector(`.msg-row[data-message-id="${optimistic.id}"]`);
     if (tmp) { tmp.dataset.messageId = saved.id; tmp.dataset.createdAt = saved.created_at; }
-    refreshChats();
+    refreshChats().catch(() => {});
   } catch (e) {
     toast(e.message, "error");
     const tmp = document.querySelector(`.msg-row[data-message-id="${optimistic.id}"]`);
@@ -779,6 +820,7 @@ function getLastPrevMsg() {
 
 function scrollToBottom() {
   const el = document.getElementById("messages");
+  if (!el) return;
   requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
 }
 
@@ -799,15 +841,16 @@ async function onAttachPick(e) {
   try {
     const att = await uploadAttachment(file, state.activeChatId);
     state.pendingAttachment = att;
-    showAttachmentPreview(att, file);
+    showAttachmentPreview(att);
   } catch (err) {
     toast(err.message, "error");
   }
 }
 
-function showAttachmentPreview(att, file) {
+function showAttachmentPreview(att) {
   removeAttachmentPreview();
   const composer = document.querySelector(".composer");
+  if (!composer) return;
   const box = document.createElement("div");
   box.id = "attachment-preview";
   box.style.cssText = `
@@ -871,6 +914,7 @@ function toggleStickerPicker() {
 
 function openPicker(mode) {
   const composer = document.querySelector(".composer");
+  if (!composer) return;
   const picker = document.createElement("div");
   picker.className = "picker";
   picker.id = "picker";
@@ -903,7 +947,6 @@ function openPicker(mode) {
     });
     renderEmojiCat(body, activeCat);
   } else {
-    // Стикеры: системные + кастомные + кнопка загрузки
     const sysTab = document.createElement("button");
     sysTab.className = "picker-tab active";
     sysTab.textContent = "System";
@@ -945,10 +988,8 @@ function openPicker(mode) {
             del.addEventListener("click", async (e) => {
               e.stopPropagation();
               if (!confirm("Delete sticker?")) return;
-              try {
-                await deleteSticker(s.id);
-                renderCustom();
-              } catch (err) { toast(err.message, "error"); }
+              try { await deleteSticker(s.id); renderCustom(); }
+              catch (err) { toast(err.message, "error"); }
             });
             tile.style.position = "relative";
             tile.appendChild(del);
@@ -1054,7 +1095,7 @@ async function sendSticker(stickerId, url) {
     content: "",
     kind: "sticker",
     sticker_id: stickerId,
-    attachment_url: url, // для кастомных — пригодится в рендере
+    attachment_url: url,
     edited_at: null,
     created_at: new Date().toISOString(),
   };
@@ -1065,13 +1106,12 @@ async function sendSticker(stickerId, url) {
 
   try {
     const saved = await sendStickerMessage(state.activeChatId, stickerId, url);
-    // Сохраним URL в attachment_url, чтобы кастомный стикер отрисовался везде
     if (!stickerId.startsWith("sys-") && url) {
       await supabase.from("messages").update({ attachment_url: url }).eq("id", saved.id);
     }
     const tmp = document.querySelector(`.msg-row[data-message-id="${optimistic.id}"]`);
     if (tmp) tmp.dataset.messageId = saved.id;
-    refreshChats();
+    refreshChats().catch(() => {});
   } catch (e) {
     toast(e.message, "error");
     const tmp = document.querySelector(`.msg-row[data-message-id="${optimistic.id}"]`);
@@ -1086,6 +1126,7 @@ function closePanel() { document.querySelectorAll(".panel").forEach(p => p.remov
 
 function renderWelcome() {
   const w = document.getElementById("welcome");
+  if (!w) return;
   w.innerHTML = "";
   const logo = document.createElement("div");
   logo.className = "welcome-logo";
@@ -1101,9 +1142,6 @@ function renderWelcome() {
   w.appendChild(logo); w.appendChild(tag); w.appendChild(hint);
 }
 
-// ============================================================
-// New chat dialog (Group / Channel)
-// ============================================================
 function openNewChatDialog() {
   closePanel();
   const panel = document.createElement("div");
@@ -1157,7 +1195,6 @@ function openNewChatDialog() {
     btnChannel.className = "btn btn-primary";
   });
 
-  // Список контактов с чекбоксами
   const contactsBox = panel.querySelector("#gc-contacts");
   if (!state.contacts.length) {
     contactsBox.innerHTML = '<div class="empty-state">No contacts yet. Add some via search.</div>';
@@ -1197,9 +1234,6 @@ function openNewChatDialog() {
   });
 }
 
-// ============================================================
-// Chat info panel
-// ============================================================
 async function openChatInfoPanel(chat) {
   closePanel();
   const panel = document.createElement("div");
@@ -1215,7 +1249,6 @@ async function openChatInfoPanel(chat) {
   panel.querySelector("[data-close-panel]").addEventListener("click", closePanel);
   const body = panel.querySelector("#chat-info-body");
 
-  // Hero
   const hero = document.createElement("div");
   hero.className = "profile-hero";
 
@@ -1241,7 +1274,7 @@ async function openChatInfoPanel(chat) {
         await uploadChatAvatar(chat.id, f);
         toast("Avatar updated", "success");
         await refreshChats();
-        closePanel(); openChatInfoPanel({ ...chat, avatar_url: "loading" });
+        closePanel(); openChatInfoPanel({ ...chat });
       } catch (err) { toast(err.message, "error"); }
     });
     avWrap.appendChild(fileInp);
@@ -1276,7 +1309,6 @@ async function openChatInfoPanel(chat) {
   }
   body.appendChild(hero);
 
-  // Description
   if (chat.type !== "direct") {
     const descSection = document.createElement("div");
     descSection.className = "settings-section";
@@ -1305,12 +1337,12 @@ async function openChatInfoPanel(chat) {
     body.appendChild(descSection);
   }
 
-  // Members
   if (chat.type !== "direct") {
     const membersSection = document.createElement("div");
     membersSection.className = "settings-section";
     membersSection.innerHTML = `<h3>👥 Members</h3>`;
-    const list = await listChatMembers(chat.id);
+    let list = [];
+    try { list = await listChatMembers(chat.id); } catch (_) {}
     list.forEach(m => {
       const row = document.createElement("div");
       row.className = "settings-row";
@@ -1339,7 +1371,6 @@ async function openChatInfoPanel(chat) {
     body.appendChild(membersSection);
   }
 
-  // Actions
   const actions = document.createElement("div");
   actions.className = "settings-section";
   if (chat.type !== "direct") {
@@ -1367,7 +1398,8 @@ async function openChatInfoPanel(chat) {
 }
 
 async function openAddMemberDialog(chat) {
-  const list = await listChatMembers(chat.id);
+  let list = [];
+  try { list = await listChatMembers(chat.id); } catch (_) {}
   const existing = new Set(list.map(m => m.user_id));
   const candidates = state.contacts.filter(c => !existing.has(c.user_id));
   if (!candidates.length) { toast("All contacts already added", "info"); return; }
@@ -1414,7 +1446,7 @@ async function openAddMemberDialog(chat) {
 }
 
 // ============================================================
-// Profile panel (с системными аватарками)
+// Profile panel
 // ============================================================
 function openProfilePanel() {
   closePanel();
@@ -1483,7 +1515,6 @@ function openProfilePanel() {
   hero.appendChild(idEl);
   body.appendChild(hero);
 
-  // Системные аватарки
   const sysSection = document.createElement("div");
   sysSection.className = "settings-section";
   sysSection.innerHTML = `<h3>🎨 System avatars</h3>`;
@@ -1511,7 +1542,6 @@ function openProfilePanel() {
   sysSection.appendChild(grid);
   body.appendChild(sysSection);
 
-  // Username
   const uSection = document.createElement("div");
   uSection.className = "settings-section";
   uSection.innerHTML = `<h3>✎ Username</h3>`;
@@ -1535,7 +1565,6 @@ function openProfilePanel() {
   uSection.appendChild(uSave);
   body.appendChild(uSection);
 
-  // About
   const aSection = document.createElement("div");
   aSection.className = "settings-section";
   aSection.innerHTML = `<h3>ℹ About</h3>`;
@@ -1596,7 +1625,6 @@ function accountSection() {
   const s = document.createElement("div");
   s.className = "settings-section";
   s.innerHTML = `<h3>👤 Account</h3>`;
-
   const rowId = document.createElement("div");
   rowId.className = "settings-row";
   rowId.innerHTML = `
@@ -1803,15 +1831,12 @@ function appearanceSection() {
     const b = document.createElement("button");
     b.className = "btn " + (current === t.key ? "btn-primary" : "btn-ghost");
     b.textContent = t.label;
-    b.dataset.themeChoice = t.key;
-    b.addEventListener("click", () => {
-      // локальная функция из utils
-      import("./utils.js").then(({ applyTheme }) => {
-        applyTheme(t.key);
-        group.querySelectorAll("button").forEach(x => x.className = "btn btn-ghost");
-        b.className = "btn btn-primary";
-        toast("Theme: " + t.label, "success");
-      });
+    b.addEventListener("click", async () => {
+      const { applyTheme } = await import("./utils.js");
+      applyTheme(t.key);
+      group.querySelectorAll("button").forEach(x => x.className = "btn btn-ghost");
+      b.className = "btn btn-primary";
+      toast("Theme: " + t.label, "success");
     });
     group.appendChild(b);
   });
@@ -1881,6 +1906,3 @@ function privacySection() {
   s.appendChild(r3);
   return s;
 }
-
-// Импорт функции subscribeToReactions не был подключён явно — делаем это
-import { subscribeToReactions } from "./reactions.js";
